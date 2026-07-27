@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/session";
@@ -9,6 +10,11 @@ import { signIn } from "./support/session";
 // first-compile latency. The account-scope and auth checks below are pure API
 // round-trips and stay cross-browser.
 test.describe("task UI journeys", () => {
+  // These journeys share the development server's first-compile and IndexedDB
+  // workload. Keep them serial so the long-list pagination fixture cannot
+  // starve the immediate local-navigation assertions in creation flows.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(({ browserName }) => {
     test.skip(
       browserName !== "chromium",
@@ -204,6 +210,109 @@ test.describe("task UI journeys", () => {
         { timeout: 15_000 },
       )
       .toBe(false);
+  });
+
+  test("browses, filters, and paginates Task collections accessibly", async ({
+    page,
+  }) => {
+    await signIn(page, { onboarded: true, timezone: "UTC" });
+
+    const areaId = crypto.randomUUID();
+    expect(
+      (
+        await page.request.post("/api/v1/areas", {
+          data: {
+            id: areaId,
+            name: "Work",
+            idempotencyKey: crypto.randomUUID(),
+          },
+        })
+      ).status(),
+    ).toBe(201);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrowDate = new Date();
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+
+    async function createTask(
+      title: string,
+      metadata: Record<string, unknown> = {},
+    ) {
+      const id = crypto.randomUUID();
+      const response = await page.request.post("/api/v1/tasks", {
+        data: {
+          id,
+          title,
+          idempotencyKey: crypto.randomUUID(),
+          ...metadata,
+        },
+      });
+      expect(response.status()).toBe(201);
+      return id;
+    }
+
+    await createTask("Today with low energy", {
+      scheduledDate: today,
+      areaId,
+      energy: "low",
+    });
+    await createTask("Upcoming task", {
+      scheduledDate: tomorrow,
+      energy: "high",
+    });
+    await createTask("Unscheduled task");
+    for (let index = 0; index < 18; index += 1) {
+      await createTask(`Inventory task ${index + 1}`);
+    }
+    const completedId = await createTask("Finished task");
+    expect(
+      (
+        await page.request.patch(`/api/v1/tasks/${completedId}`, {
+          data: {
+            idempotencyKey: crypto.randomUUID(),
+            baseVersion: 1,
+            patch: { status: "completed" },
+          },
+        })
+      ).status(),
+    ).toBe(200);
+
+    await page.goto("/tasks");
+
+    // Anytime contains scheduled and unscheduled active work, bounded to one
+    // server page until the user asks for more.
+    await expect(page.getByText("Unscheduled task")).toBeVisible();
+    await expect(page.getByText("Today with low energy")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Load more" })).toBeVisible();
+    await page.getByRole("button", { name: "Load more" }).click();
+    await expect(page.getByText("Upcoming task")).toBeVisible();
+
+    // Explicit filters narrow the inventory and clear as one predictable unit.
+    await expect(page.getByRole("option", { name: "Work" })).toBeAttached();
+    await page.getByLabel("Filter by area").selectOption(areaId);
+    await page.getByLabel("Filter by energy").selectOption("low");
+    await expect(page.getByText("Today with low energy")).toBeVisible();
+    await expect(page.getByText("Unscheduled task")).toHaveCount(0);
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await expect(page.getByLabel("Filter by area")).toHaveValue("");
+    await expect(page.getByLabel("Filter by energy")).toHaveValue("");
+
+    await page.getByRole("tab", { name: "Today" }).click();
+    await expect(page.getByText("Today with low energy")).toBeVisible();
+    await expect(page.getByText("Unscheduled task")).toHaveCount(0);
+
+    await page.getByRole("tab", { name: "Upcoming" }).click();
+    await expect(page.getByText("Upcoming task")).toBeVisible();
+
+    await page.getByRole("tab", { name: "Completed" }).click();
+    await expect(page.getByText("Finished task")).toBeVisible();
+    await expect(page.getByText(/overdue/i)).toHaveCount(0);
+
+    const accessibility = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(accessibility.violations).toEqual([]);
   });
 });
 

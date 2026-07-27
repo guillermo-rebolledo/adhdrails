@@ -1,6 +1,10 @@
+import {
+  TASK_COLLECTION_PAGE_SIZE,
+  taskCollectionPageResponseSchema,
+} from "@/domain/task/collection";
 import { getAccountSummary } from "@/server/auth/session";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
-import { unauthorizedProblem } from "@/server/http/problem";
+import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
 import { serializeTask, taskCreateFailureResponse } from "@/server/task/http";
@@ -29,9 +33,34 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
       return unauthorizedProblem(correlationId);
     }
 
-    const items = await deps.getService().listActiveForAccount(account.userId);
+    const url = new URL(request.url);
+    const result = await deps.getService().listCollection(
+      account.userId,
+      {
+        collection: url.searchParams.get("collection") ?? "anytime",
+        // Callers must supply the account-local date; deriving it in UTC would
+        // misclassify Today near timezone boundaries.
+        today: url.searchParams.get("today"),
+        areaId: url.searchParams.get("areaId"),
+        energy: url.searchParams.get("energy"),
+        cursor: url.searchParams.get("cursor"),
+        direction: url.searchParams.get("direction") ?? undefined,
+      },
+      TASK_COLLECTION_PAGE_SIZE,
+    );
 
-    return jsonResponse({ items: items.map(serializeTask) }, correlationId);
+    if (!result.ok) {
+      return validationProblem(correlationId, result.fieldErrors);
+    }
+
+    return jsonResponse(
+      taskCollectionPageResponseSchema.parse({
+        items: result.items.map(serializeTask),
+        nextCursor: result.nextCursor,
+        previousCursor: result.previousCursor,
+      }),
+      correlationId,
+    );
   }
 
   async function POST(request: Request): Promise<Response> {

@@ -189,6 +189,17 @@ export class RailsDatabase extends Dexie {
       areas: "id, name, syncState",
       outbox: "id, entity, status, sequence, createdAt",
     });
+    // Compound ordering supports deterministic, bounded offline collection
+    // windows without loading an account's entire Task inventory into memory.
+    this.version(7).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks:
+        "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
   }
 }
 

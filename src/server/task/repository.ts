@@ -1,5 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 
+import type {
+  TaskCollection,
+  TaskCursor,
+  TaskEnergyFilter,
+} from "@/domain/task/collection";
 import type { TaskCreateRequest, TaskPatch } from "@/domain/task/task";
 import type { Database } from "@/server/db/connection";
 import { task, taskTombstone } from "@/server/db/schema";
@@ -46,6 +51,17 @@ export interface TaskUpdateWrite {
   completedAt: Date | null;
   version: number;
   idempotencyKey: string;
+}
+
+export interface TaskCollectionPageQuery {
+  collection: TaskCollection;
+  today: string | null;
+  areaId: string | null;
+  energy: TaskEnergyFilter | null;
+  cursor: TaskCursor | null;
+  direction: "forward" | "backward";
+  /** The service passes `pageSize + 1` so it can detect another page. */
+  limit: number;
 }
 
 /**
@@ -161,6 +177,73 @@ export function createTaskRepository(database: Database) {
         .from(task)
         .where(and(eq(task.userId, userId), eq(task.status, "active")))
         .orderBy(asc(task.createdAt), asc(task.id));
+    },
+
+    /**
+     * One stable cursor page of a Task collection. Collection membership and
+     * explicit filters are enforced in PostgreSQL so large inventories remain
+     * bounded; every query resumes strictly after `(created_at, id)`.
+     */
+    async listCollection(
+      userId: string,
+      query: TaskCollectionPageQuery,
+    ): Promise<TaskRecord[]> {
+      const status =
+        query.collection === "completed"
+          ? eq(task.status, "completed")
+          : eq(task.status, "active");
+      const schedule =
+        query.collection === "today"
+          ? eq(task.scheduledDate, query.today!)
+          : query.collection === "upcoming"
+            ? gt(task.scheduledDate, query.today!)
+            : undefined;
+      const energy =
+        query.collection === "today" || query.collection === "upcoming"
+          ? undefined
+          : query.energy === "unset"
+            ? isNull(task.energy)
+            : query.energy
+              ? eq(task.energy, query.energy)
+              : undefined;
+      const afterCursor = query.cursor
+        ? query.direction === "backward"
+          ? or(
+              lt(task.createdAt, new Date(query.cursor.createdAt)),
+              and(
+                eq(task.createdAt, new Date(query.cursor.createdAt)),
+                lt(task.id, query.cursor.id),
+              ),
+            )
+          : or(
+              gt(task.createdAt, new Date(query.cursor.createdAt)),
+              and(
+                eq(task.createdAt, new Date(query.cursor.createdAt)),
+                gt(task.id, query.cursor.id),
+              ),
+            )
+        : undefined;
+
+      return database
+        .select(recordColumns)
+        .from(task)
+        .where(
+          and(
+            eq(task.userId, userId),
+            status,
+            schedule,
+            query.areaId ? eq(task.areaId, query.areaId) : undefined,
+            energy,
+            afterCursor,
+          ),
+        )
+        .orderBy(
+          query.direction === "backward"
+            ? desc(task.createdAt)
+            : asc(task.createdAt),
+          query.direction === "backward" ? desc(task.id) : asc(task.id),
+        )
+        .limit(query.limit);
     },
   };
 }

@@ -16,9 +16,9 @@ import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
 import { createEventSend } from "./event-send";
 import { createInboxSend } from "./inbox-send";
 import { createThoughtSend } from "./outbox-send";
+import { refreshServerViews } from "./refresh-server-views";
 import { createTaskSend } from "./task-send";
 import { createSyncEngine, type SendResult, type SyncEngine } from "./sync";
-import { pullThoughts } from "./thought-pull";
 
 /**
  * Routes an outbox entry to the delivery adapter for its entity. The sync
@@ -85,7 +85,7 @@ export function OfflineProvider({
       db,
       send: createSend(),
       isOnline: () => navigator.onLine,
-      afterSync: () => pullThoughts(db).catch(() => undefined),
+      afterSync: () => refreshServerViews(db, queryClient),
     });
     engineRef.current = engine;
     engine.start();
@@ -94,7 +94,7 @@ export function OfflineProvider({
       engine.stop();
       engineRef.current = null;
     };
-  }, [db]);
+  }, [db, queryClient]);
 
   const value = useMemo<OfflineContextValue>(
     () => ({

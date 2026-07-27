@@ -70,6 +70,11 @@ try {
 
   await runCommand("pnpm", ["db:migrate"], environment);
   await runCommand("pnpm", ["db:seed"], environment);
+  await runCommand(
+    "pnpm",
+    ["exec", "vitest", "run", "src/server/task/repository.integration.test.ts"],
+    environment,
+  );
   await runCommand("pnpm", ["test:e2e"], environment);
 } finally {
   await execFileAsync("docker", ["stop", containerName]).catch(() => undefined);
