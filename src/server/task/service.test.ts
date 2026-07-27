@@ -12,6 +12,13 @@ function record(overrides: Partial<TaskRecord> = {}): TaskRecord {
     id: ID,
     title: "Write the report",
     status: "active",
+    scheduledDate: null,
+    scheduledTime: null,
+    estimateMinutes: null,
+    energy: null,
+    important: false,
+    notes: "",
+    areaId: null,
     completedAt: null,
     version: 1,
     idempotencyKey: KEY,
@@ -70,6 +77,75 @@ describe("createTaskService.create", () => {
 
     expect(insert).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: true, created: false });
+  });
+
+  it("passes planning metadata through to the repository on insert", async () => {
+    const areaId = "33333333-3333-4333-8333-333333333333";
+    const withMetadata = {
+      ...createRequest,
+      scheduledDate: "2026-08-01",
+      scheduledTime: "09:30",
+      estimateMinutes: 25,
+      energy: "high",
+      important: true,
+      notes: "Draft first.",
+      areaId,
+    };
+    const insert = vi.fn().mockResolvedValue(record(withMetadata));
+    const service = createTaskService(repository({ insert }));
+
+    const result = await service.create("user_1", withMetadata);
+
+    expect(insert).toHaveBeenCalledWith("user_1", withMetadata);
+    expect(result).toMatchObject({ ok: true, created: true });
+  });
+
+  it("rejects an incoherent schedule (time without date) before inserting", async () => {
+    const insert = vi.fn();
+    const service = createTaskService(repository({ insert }));
+
+    const result = await service.create("user_1", {
+      ...createRequest,
+      scheduledTime: "09:30",
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "invalid" });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("refuses to reference an Area that is not the account's own", async () => {
+    const areaId = "33333333-3333-4333-8333-333333333333";
+    const insert = vi.fn();
+    const service = createTaskService(
+      repository({ insert }),
+      () => NOW,
+      async () => false,
+    );
+
+    const result = await service.create("user_1", { ...createRequest, areaId });
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "invalid",
+      fieldErrors: { areaId: expect.any(Array) },
+    });
+  });
+
+  it("accepts a Task that references the account's own Area", async () => {
+    const areaId = "33333333-3333-4333-8333-333333333333";
+    const insert = vi.fn().mockResolvedValue(record({ areaId }));
+    const areaCheck = vi.fn().mockResolvedValue(true);
+    const service = createTaskService(
+      repository({ insert }),
+      () => NOW,
+      areaCheck,
+    );
+
+    const result = await service.create("user_1", { ...createRequest, areaId });
+
+    expect(areaCheck).toHaveBeenCalledWith("user_1", areaId);
+    expect(result).toMatchObject({ ok: true, created: true });
   });
 
   it("refuses to resurrect a tombstoned task", async () => {
@@ -178,6 +254,48 @@ describe("createTaskService.update", () => {
     });
 
     expect(result).toMatchObject({ ok: false, reason: "not_found" });
+  });
+
+  it("refuses to patch in an Area that is not the account's own", async () => {
+    const areaId = "33333333-3333-4333-8333-333333333333";
+    const update = vi.fn();
+    const service = createTaskService(
+      repository({
+        getById: vi.fn().mockResolvedValue(record({ idempotencyKey: "prior" })),
+        update,
+      }),
+      () => NOW,
+      async () => false,
+    );
+
+    const result = await service.update("user_1", ID, {
+      ...base,
+      patch: { areaId },
+    });
+
+    expect(update).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, reason: "invalid" });
+  });
+
+  it("allows clearing the Area without an ownership check", async () => {
+    const update = vi.fn().mockResolvedValue(record({ areaId: null }));
+    const areaCheck = vi.fn();
+    const service = createTaskService(
+      repository({
+        getById: vi.fn().mockResolvedValue(record({ idempotencyKey: "prior" })),
+        update,
+      }),
+      () => NOW,
+      areaCheck,
+    );
+
+    const result = await service.update("user_1", ID, {
+      ...base,
+      patch: { areaId: null },
+    });
+
+    expect(areaCheck).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, applied: true });
   });
 
   it("treats an update to a tombstoned task as gone", async () => {

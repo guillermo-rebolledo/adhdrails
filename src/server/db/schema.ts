@@ -138,11 +138,44 @@ export const inboxItemTombstone = pgTable("inbox_item_tombstone", {
 });
 
 /**
+ * An Area owned by one account: a lightweight, optional label a Task can carry
+ * for context. The primary key is the client-generated UUID, so an offline
+ * record keeps its identity once it synchronizes; `version` and `idempotencyKey`
+ * support safe retries and reviewable conflicts. Areas are created on entry from
+ * the Task form and reused by name on the client, so no uniqueness constraint is
+ * imposed here — that keeps offline records self-consistent without temporary-ID
+ * remapping. The `account_name_idx` supports listing an account's Areas by name.
+ */
+export const area = pgTable(
+  "area",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    version: integer("version").notNull().default(1),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("area_account_name_idx").on(table.userId, table.name)],
+);
+
+/**
  * A Task owned by one account. The primary key is the client-generated UUID, so
  * an offline record keeps its identity once it synchronizes. `version` and
  * `idempotencyKey` support safe retries and reviewable conflicts for the
- * offline mutation tracer; `status` is a constrained `text` union rather than a
- * PostgreSQL enum. Completion records `completedAt` but never a punitive state.
+ * offline mutation tracer; `status` and `energy` are constrained `text` unions
+ * rather than PostgreSQL enums. Planning metadata is all optional: a
+ * `scheduled_date` with no `scheduled_time` is a date-only Task (no timed
+ * reminder), `estimate_minutes` is informational, `important` is a plain Boolean,
+ * and `area_id` references at most one Area (set null if that Area disappears).
+ * Completion records `completedAt` but never a punitive state.
  */
 export const task = pgTable(
   "task",
@@ -153,6 +186,13 @@ export const task = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     status: text("status").notNull().default("active"),
+    scheduledDate: date("scheduled_date"),
+    scheduledTime: text("scheduled_time"),
+    estimateMinutes: integer("estimate_minutes"),
+    energy: text("energy"),
+    important: boolean("important").notNull().default(false),
+    notes: text("notes").notNull().default(""),
+    areaId: uuid("area_id").references(() => area.id, { onDelete: "set null" }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     version: integer("version").notNull().default(1),
     idempotencyKey: uuid("idempotency_key").notNull(),
@@ -170,6 +210,12 @@ export const task = pgTable(
       table.createdAt,
       table.id,
     ),
+    index("task_account_scheduled_idx").on(
+      table.userId,
+      table.scheduledDate,
+      table.id,
+    ),
+    index("task_area_idx").on(table.areaId),
   ],
 );
 

@@ -1,12 +1,27 @@
 import {
   resolveCompletedAt,
+  type TaskEnergy,
   taskCreateRequestSchema,
   type TaskPatch,
 } from "@/domain/task/task";
 
 import type { LocalTask, OutboxEntry, RailsDatabase } from "./db";
 
-export interface CreateTaskInput {
+/**
+ * The optional planning metadata a Task create may carry alongside its title. An
+ * omitted field means "not set"; title-only capture stays valid.
+ */
+export interface TaskPlanningInput {
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
+  estimateMinutes?: number | null;
+  energy?: TaskEnergy | null;
+  important?: boolean;
+  notes?: string;
+  areaId?: string | null;
+}
+
+export interface CreateTaskInput extends TaskPlanningInput {
   title: string;
 }
 
@@ -15,6 +30,21 @@ export interface CreateTaskOptions {
   idempotencyKey?: string;
   outboxId?: string;
   now?: string;
+}
+
+/** The planning fields present on an input, with the title stripped out. */
+function planningFields(input: TaskPlanningInput): TaskPlanningInput {
+  const { scheduledDate, scheduledTime, estimateMinutes, energy, important } =
+    input;
+  const fields: TaskPlanningInput = {};
+  if (scheduledDate !== undefined) fields.scheduledDate = scheduledDate;
+  if (scheduledTime !== undefined) fields.scheduledTime = scheduledTime;
+  if (estimateMinutes !== undefined) fields.estimateMinutes = estimateMinutes;
+  if (energy !== undefined) fields.energy = energy;
+  if (important !== undefined) fields.important = important;
+  if (input.notes !== undefined) fields.notes = input.notes;
+  if (input.areaId !== undefined) fields.areaId = input.areaId;
+  return fields;
 }
 
 /**
@@ -35,12 +65,20 @@ export function buildTaskCreate(
     id,
     title: input.title,
     idempotencyKey,
+    ...planningFields(input),
   });
 
   const task: LocalTask = {
     id,
     title: request.title,
     status: "active",
+    scheduledDate: request.scheduledDate ?? null,
+    scheduledTime: request.scheduledTime ?? null,
+    estimateMinutes: request.estimateMinutes ?? null,
+    energy: request.energy ?? null,
+    important: request.important ?? false,
+    notes: request.notes ?? "",
+    areaId: request.areaId ?? null,
     completedAt: null,
     version: 1,
     createdAt,
@@ -119,6 +157,21 @@ export async function updateTask(
       ...local,
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.status !== undefined ? { status: patch.status } : {}),
+      // A planning field present in the patch is applied; `null` clears it. An
+      // absent field leaves the local value untouched.
+      ...("scheduledDate" in patch
+        ? { scheduledDate: patch.scheduledDate ?? null }
+        : {}),
+      ...("scheduledTime" in patch
+        ? { scheduledTime: patch.scheduledTime ?? null }
+        : {}),
+      ...("estimateMinutes" in patch
+        ? { estimateMinutes: patch.estimateMinutes ?? null }
+        : {}),
+      ...("energy" in patch ? { energy: patch.energy ?? null } : {}),
+      ...(patch.important !== undefined ? { important: patch.important } : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      ...("areaId" in patch ? { areaId: patch.areaId ?? null } : {}),
       completedAt: resolveCompletedAt(local.completedAt, patch.status, now),
       syncState: "pending",
     };

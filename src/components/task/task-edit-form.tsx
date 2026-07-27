@@ -5,17 +5,69 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { AreaCombobox } from "@/components/task/area-combobox";
+import {
+  metadataToPlanningInput,
+  type TaskMetadataDraft,
+  TaskPlanningFields,
+} from "@/components/task/task-planning-fields";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { TASK_TITLE_MAX_LENGTH } from "@/domain/task/task";
+import { TASK_TITLE_MAX_LENGTH, type TaskPatch } from "@/domain/task/task";
+import type { LocalTask } from "@/offline/db";
 import { updateTask } from "@/offline/task-commands";
 import { useOffline } from "@/offline/provider";
 
+/** The current Task, projected into the string-based form draft shape. */
+function draftFromTask(task: LocalTask): TaskMetadataDraft {
+  return {
+    scheduledDate: task.scheduledDate ?? "",
+    scheduledTime: task.scheduledTime ?? "",
+    estimateMinutes: task.estimateMinutes?.toString() ?? "",
+    energy: task.energy ?? "",
+    important: task.important,
+    notes: task.notes,
+    areaId: task.areaId,
+  };
+}
+
+/**
+ * Builds the patch of only the fields that actually changed, so an edit that
+ * touches one detail does not needlessly rewrite the rest. Planning fields are
+ * included as `null` when cleared. Returns an empty object when nothing changed.
+ */
+function buildPatch(task: LocalTask, title: string, draft: TaskMetadataDraft) {
+  const next = metadataToPlanningInput(draft);
+  const patch: TaskPatch = {};
+
+  if (title !== task.title) patch.title = title;
+  if ((next.scheduledDate ?? null) !== task.scheduledDate) {
+    patch.scheduledDate = next.scheduledDate ?? null;
+  }
+  if ((next.scheduledTime ?? null) !== task.scheduledTime) {
+    patch.scheduledTime = next.scheduledTime ?? null;
+  }
+  if ((next.estimateMinutes ?? null) !== task.estimateMinutes) {
+    patch.estimateMinutes = next.estimateMinutes ?? null;
+  }
+  if ((next.energy ?? null) !== task.energy) {
+    patch.energy = next.energy ?? null;
+  }
+  if (next.important !== task.important) patch.important = next.important;
+  if ((next.notes ?? "") !== task.notes) patch.notes = next.notes ?? "";
+  if ((next.areaId ?? null) !== task.areaId) {
+    patch.areaId = next.areaId ?? null;
+  }
+
+  return patch;
+}
+
 /**
  * The dedicated full-page Task edit flow. It reads the Task straight from the
- * local replica, so viewing and editing work online or offline. Saving queues
- * an optimistic update through the same Dexie-first boundary as every other
- * mutation.
+ * local replica, so viewing and editing work online or offline, and edits every
+ * field of planning metadata alongside the title. Saving queues an optimistic
+ * update carrying only the changed fields through the same Dexie-first boundary
+ * as every other mutation.
  */
 export function TaskEditForm({ taskId }: { taskId: string }) {
   const { db, sync } = useOffline();
@@ -27,8 +79,10 @@ export function TaskEditForm({ taskId }: { taskId: string }) {
     async () => (await db.tasks.get(taskId)) ?? null,
     [db, taskId],
   );
-  // `null` means "untouched": show the loaded Task's title until the user edits.
-  const [edited, setEdited] = useState<string | null>(null);
+  // `null` means "untouched": show the loaded Task's values until the user edits.
+  const [editedTitle, setEditedTitle] = useState<string | null>(null);
+  const [editedMetadata, setEditedMetadata] =
+    useState<TaskMetadataDraft | null>(null);
 
   if (task === undefined) {
     return null;
@@ -41,16 +95,22 @@ export function TaskEditForm({ taskId }: { taskId: string }) {
   }
 
   const currentTitle = task.title;
-  const title = edited ?? currentTitle;
+  const title = editedTitle ?? currentTitle;
+  const metadata = editedMetadata ?? draftFromTask(task);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (task === undefined || task === null) {
+      return;
+    }
     const trimmed = title.trim();
     if (trimmed === "") {
       return;
     }
-    if (trimmed !== currentTitle) {
-      await updateTask(db, taskId, { title: trimmed });
+
+    const patch = buildPatch(task, trimmed, metadata);
+    if (Object.keys(patch).length > 0) {
+      await updateTask(db, taskId, patch);
       void sync();
     }
     router.push("/today");
@@ -59,7 +119,7 @@ export function TaskEditForm({ taskId }: { taskId: string }) {
   return (
     <form
       aria-label="Edit task"
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-6"
       onSubmit={onSubmit}
     >
       <div className="flex flex-col gap-2">
@@ -71,10 +131,25 @@ export function TaskEditForm({ taskId }: { taskId: string }) {
           id={inputId}
           maxLength={TASK_TITLE_MAX_LENGTH}
           name="title"
-          onChange={(event) => setEdited(event.target.value)}
+          onChange={(event) => setEditedTitle(event.target.value)}
           value={title}
         />
       </div>
+
+      <TaskPlanningFields
+        onChange={setEditedMetadata}
+        renderAreaField={(areaInputId) => (
+          <AreaCombobox
+            id={areaInputId}
+            onValueChange={(areaId) =>
+              setEditedMetadata({ ...metadata, areaId })
+            }
+            value={metadata.areaId}
+          />
+        )}
+        value={metadata}
+      />
+
       <div className="flex gap-2">
         <Button disabled={title.trim() === ""} type="submit">
           Save changes
