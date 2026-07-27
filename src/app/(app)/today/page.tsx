@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 
 import { QuickCapture } from "@/components/inbox/quick-capture";
+import { FocusNow } from "@/components/task/focus-now";
 import { TaskList } from "@/components/task/task-list";
 import { buttonVariants } from "@/components/ui/button";
 import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
@@ -28,6 +29,10 @@ export default async function TodayPage() {
           automatically.
         </p>
       </div>
+      <FocusNow
+        locale={account?.locale ?? DEFAULT_LOCALE}
+        timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
+      />
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-lg font-medium">Available tasks</h2>
