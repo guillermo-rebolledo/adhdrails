@@ -74,9 +74,16 @@ export function QuickCapture({
   const detectedDuration = removed.has("duration")
     ? null
     : (parsed?.schedule.durationMinutes ?? null);
-  // A time always implies a day (the parser resolves it), so a confirmable Event
-  // needs only a surviving time and a resolved date.
-  const eventDate = detectedTime ? (parsed?.schedule.date ?? null) : null;
+  // The date backing a confirmed Event, derived the same way removals are
+  // honored for time and duration. An explicit date is shown as a chip and is
+  // dropped when that chip is removed — so we never confirm on a date the user
+  // rejected. A bare time carries no date chip, so its implied day still stands
+  // (there is nothing to remove). Either way a confirmable Event needs a
+  // surviving time.
+  const eventDate =
+    detectedTime && !removed.has("date")
+      ? (parsed?.schedule.date ?? null)
+      : null;
   const canConfirmEvent = Boolean(detectedTime && eventDate);
 
   function resetInput() {

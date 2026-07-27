@@ -103,6 +103,29 @@ describe("QuickCapture", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("withdraws Confirm as event when the explicit date is removed", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    const user = userEvent.setup();
+    render(<QuickCapture timeZone="America/Los_Angeles" />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Quick capture" }),
+      "lunch tomorrow at 1pm",
+    );
+
+    // A date + time capture can be confirmed as an Event.
+    expect(
+      await screen.findByRole("button", { name: "Confirm as event" }),
+    ).toBeInTheDocument();
+
+    // Removing the date the user rejected must not leave an Event that would be
+    // created on that very date; the confirmation is withdrawn.
+    await user.click(screen.getByRole("button", { name: /Remove date/ }));
+    expect(
+      screen.queryByRole("button", { name: "Confirm as event" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("confirms a timed capture as a local Event via the offline path", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
     const user = userEvent.setup();
