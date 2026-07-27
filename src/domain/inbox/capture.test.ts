@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   INBOX_TITLE_MAX_LENGTH,
   inboxCaptureRequestSchema,
+  inboxTombstoneExpiresAt,
+  inboxUpdateRequestSchema,
+  isInboxTombstoneExpired,
   resolveCreate,
+  resolveUpdate,
 } from "./capture";
 
 const validRequest = {
@@ -80,5 +84,81 @@ describe("resolveCreate", () => {
     expect(
       resolveCreate({ title: "Buy bread", idempotencyKey: "key-b" }, incoming),
     ).toBe("conflict");
+  });
+
+  it("reports gone when the id was deleted and tombstoned", () => {
+    expect(resolveCreate(null, incoming, true)).toBe("gone");
+  });
+});
+
+describe("inboxUpdateRequestSchema", () => {
+  const KEY = "22222222-2222-4222-8222-222222222222";
+
+  it("accepts a seen update carrying a base version", () => {
+    const parsed = inboxUpdateRequestSchema.parse({
+      idempotencyKey: KEY,
+      baseVersion: 1,
+      patch: { seen: true },
+    });
+
+    expect(parsed.patch.seen).toBe(true);
+  });
+
+  it("rejects an empty patch", () => {
+    const result = inboxUpdateRequestSchema.safeParse({
+      idempotencyKey: KEY,
+      baseVersion: 1,
+      patch: {},
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("resolveUpdate", () => {
+  const incoming = { baseVersion: 1, idempotencyKey: "key-a" };
+
+  it("is missing when nothing is stored", () => {
+    expect(resolveUpdate(null, incoming)).toBe("missing");
+  });
+
+  it("is gone when the item was tombstoned", () => {
+    expect(
+      resolveUpdate({ version: 1, idempotencyKey: "x" }, incoming, true),
+    ).toBe("gone");
+  });
+
+  it("replays the same idempotency key", () => {
+    expect(
+      resolveUpdate({ version: 5, idempotencyKey: "key-a" }, incoming),
+    ).toBe("replay");
+  });
+
+  it("applies a matching base version", () => {
+    expect(
+      resolveUpdate({ version: 1, idempotencyKey: "key-b" }, incoming),
+    ).toBe("apply");
+  });
+
+  it("conflicts on a stale base version", () => {
+    expect(
+      resolveUpdate({ version: 2, idempotencyKey: "key-b" }, incoming),
+    ).toBe("conflict");
+  });
+});
+
+describe("inbox tombstone retention", () => {
+  it("expires 30 days after deletion", () => {
+    const deletedAt = new Date("2026-07-01T00:00:00.000Z");
+
+    expect(inboxTombstoneExpiresAt(deletedAt).toISOString()).toBe(
+      "2026-07-31T00:00:00.000Z",
+    );
+    expect(
+      isInboxTombstoneExpired(deletedAt, new Date("2026-07-30T00:00:00.000Z")),
+    ).toBe(false);
+    expect(
+      isInboxTombstoneExpired(deletedAt, new Date("2026-07-31T00:00:00.000Z")),
+    ).toBe(true);
   });
 });

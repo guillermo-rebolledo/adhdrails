@@ -14,6 +14,7 @@ import {
   SunMediumIcon,
 } from "lucide-react";
 
+import { InboxBadge } from "@/components/inbox/inbox-badge";
 import { ThemeMenu } from "@/components/theme-menu";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -82,6 +83,7 @@ function DesktopNavigation() {
                     >
                       <Icon />
                       <span>{label}</span>
+                      {href === "/inbox" ? <InboxBadge /> : null}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -132,6 +134,7 @@ function MobileNavigation() {
             >
               <Icon data-icon="inline-start" />
               {label}
+              {href === "/inbox" ? <InboxBadge /> : null}
             </Link>
           ))}
         </nav>

@@ -122,6 +122,22 @@ export const inboxItem = pgTable(
 );
 
 /**
+ * An app-owned Inbox Item deletion tombstone. It marks that an Inbox Item id was
+ * deliberately deleted so another client's queued create or update cannot
+ * resurrect it. Tombstones are retained for 30 days and then purged; `deletedAt`
+ * drives that retention window.
+ */
+export const inboxItemTombstone = pgTable("inbox_item_tombstone", {
+  id: uuid("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
  * A Task owned by one account. The primary key is the client-generated UUID, so
  * an offline record keeps its identity once it synchronizes. `version` and
  * `idempotencyKey` support safe retries and reviewable conflicts for the
