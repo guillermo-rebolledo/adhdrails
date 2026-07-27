@@ -11,6 +11,7 @@ export interface AgendaEvent {
   endAt: string;
   startTimeZone: string;
   endTimeZone: string;
+  isAllDay: boolean;
   origin: EventOrigin;
   status: EventStatus;
   syncState: SyncState;
@@ -35,14 +36,15 @@ export function EventCard({
   locale: string;
   stale?: boolean;
 }) {
-  const range = formatTimeRange(
-    event.startAt,
-    event.endAt,
-    event.startTimeZone,
-    locale,
-  );
+  // Imported all-day Events carry instants for storage but have no meaningful
+  // clock time; showing a range would be misleading, so they read "All day".
+  const range = event.isAllDay
+    ? "All day"
+    : formatTimeRange(event.startAt, event.endAt, event.startTimeZone, locale);
   const zoneNote =
-    event.startTimeZone !== timeZone ? ` (${event.startTimeZone})` : "";
+    !event.isAllDay && event.startTimeZone !== timeZone
+      ? ` (${event.startTimeZone})`
+      : "";
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border bg-card p-3 text-card-foreground">

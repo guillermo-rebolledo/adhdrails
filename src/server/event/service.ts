@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import {
   decodeEventCursor,
-  encodeEventCursor,
   LATER_PAGE_SIZE,
+  paginate,
 } from "@/domain/calendar/later";
 import {
   eventCreateRequestSchema,
@@ -152,25 +152,17 @@ export function createEventService(repository: EventRepository) {
       pageSize: number = LATER_PAGE_SIZE,
     ): Promise<LaterPage> {
       const cursor = rawCursor ? decodeEventCursor(rawCursor) : null;
+      // Fetch one extra row so `paginate` can tell whether more remain.
       const rows = await repository.listLater(userId, {
         from,
         cursor,
         limit: pageSize + 1,
       });
 
-      if (rows.length <= pageSize) {
-        return { items: rows, nextCursor: null };
-      }
-
-      const items = rows.slice(0, pageSize);
-      const last = items[items.length - 1];
-      return {
-        items,
-        nextCursor: encodeEventCursor({
-          startAt: last.startAt.toISOString(),
-          id: last.id,
-        }),
-      };
+      return paginate(rows, pageSize, (row) => ({
+        startAt: row.startAt.toISOString(),
+        id: row.id,
+      }));
     },
   };
 }

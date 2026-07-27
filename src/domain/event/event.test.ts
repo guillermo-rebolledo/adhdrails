@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_EVENT_DURATION_MINUTES } from "@/domain/calendar/agenda";
+import {
+  DEFAULT_EVENT_DURATION_MINUTES,
+  durationMinutesBetween,
+} from "@/domain/calendar/agenda";
 
 import {
   eventContentEquals,
   eventCreateRequestSchema,
-  eventDurationMinutes,
   eventPatchSchema,
   eventResponseSchema,
   resolveCreate,
@@ -30,7 +32,9 @@ const validCreate = {
 describe("eventCreateRequestSchema", () => {
   it("accepts a well-formed 30-minute local event", () => {
     const parsed = eventCreateRequestSchema.parse(validCreate);
-    expect(eventDurationMinutes(parsed)).toBe(DEFAULT_EVENT_DURATION_MINUTES);
+    expect(durationMinutesBetween(parsed.startAt, parsed.endAt)).toBe(
+      DEFAULT_EVENT_DURATION_MINUTES,
+    );
   });
 
   it("rejects an end that is not after the start", () => {

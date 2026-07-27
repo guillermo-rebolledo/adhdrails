@@ -83,6 +83,7 @@ export function LaterList({
       endAt: event.endAt,
       startTimeZone: event.startTimeZone,
       endTimeZone: event.endTimeZone,
+      isAllDay: event.isAllDay,
       origin: event.origin,
       status: event.status,
       syncState: "synced",

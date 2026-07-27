@@ -64,10 +64,14 @@ describe("paginate", () => {
     id: `id-${index}`,
     startAt: `2026-09-0${index + 1}T12:00:00Z`,
   }));
+  const toCursor = (row: (typeof rows)[number]) => ({
+    startAt: row.startAt,
+    id: row.id,
+  });
 
   it("returns a full page and a next cursor when more rows exist", () => {
     // Fetched limit+1 (4) with a limit of 3 -> one extra row signals more.
-    const { items, nextCursor } = paginate(rows, 3);
+    const { items, nextCursor } = paginate(rows, 3, toCursor);
     expect(items).toHaveLength(3);
     expect(nextCursor).toBe(
       encodeEventCursor({ startAt: rows[2].startAt, id: rows[2].id }),
@@ -75,7 +79,7 @@ describe("paginate", () => {
   });
 
   it("signals exhaustion with a null cursor when no extra row exists", () => {
-    const { items, nextCursor } = paginate(rows.slice(0, 2), 3);
+    const { items, nextCursor } = paginate(rows.slice(0, 2), 3, toCursor);
     expect(items).toHaveLength(2);
     expect(nextCursor).toBeNull();
   });

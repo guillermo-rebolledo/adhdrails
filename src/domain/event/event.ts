@@ -2,7 +2,6 @@ import { z } from "zod";
 import { Temporal } from "temporal-polyfill";
 
 import { isValidTimeZone } from "@/domain/account/onboarding";
-import { durationMinutesBetween } from "@/domain/calendar/agenda";
 
 /**
  * An Event is a time-bound commitment on the Calendar. In the MVP a user may
@@ -264,14 +263,6 @@ export function resolveUpdate(
     return "replay";
   }
   return existing.version === incoming.baseVersion ? "apply" : "conflict";
-}
-
-/** The duration of an Event in whole minutes, from its stored start/end pair. */
-export function eventDurationMinutes(event: {
-  startAt: string;
-  endAt: string;
-}): number {
-  return durationMinutesBetween(event.startAt, event.endAt);
 }
 
 /**

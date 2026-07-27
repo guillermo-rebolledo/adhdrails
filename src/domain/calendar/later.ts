@@ -111,19 +111,22 @@ export function decodeEventCursor(token: string): EventCursor | null {
 /**
  * Splits a page fetched with one extra row (`limit + 1`) into the page itself
  * and the cursor for the next page. When fewer than `limit + 1` rows come back
- * the list is exhausted and `nextCursor` is `null`.
+ * the list is exhausted and `nextCursor` is `null`. `toCursor` extracts the
+ * `(startAt, id)` pair from a row, so a caller whose row type stores `startAt`
+ * as a `Date` (the server) and one that stores it as a string (the client)
+ * share this one implementation.
  */
-export function paginate<T extends LaterItem>(
+export function paginate<T>(
   rows: readonly T[],
   limit: number,
+  toCursor: (row: T) => EventCursor,
 ): { items: T[]; nextCursor: string | null } {
   if (rows.length <= limit) {
     return { items: rows.slice(), nextCursor: null };
   }
   const items = rows.slice(0, limit);
-  const last = items.at(-1)!;
   return {
     items,
-    nextCursor: encodeEventCursor({ startAt: last.startAt, id: last.id }),
+    nextCursor: encodeEventCursor(toCursor(items[items.length - 1])),
   };
 }
