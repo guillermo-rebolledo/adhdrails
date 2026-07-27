@@ -5,6 +5,7 @@ import { type FormEvent, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { INBOX_TITLE_MAX_LENGTH } from "@/domain/inbox/capture";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { captureInboxItem } from "@/offline/commands";
 import { useOffline } from "@/offline/provider";
 
@@ -20,6 +21,7 @@ export function QuickCapture() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const hydrated = useHydrated();
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,6 +50,7 @@ export function QuickCapture() {
       <div className="flex gap-2">
         <Input
           autoComplete="off"
+          disabled={!hydrated}
           id={inputId}
           maxLength={INBOX_TITLE_MAX_LENGTH}
           name="title"
@@ -61,7 +64,7 @@ export function QuickCapture() {
           ref={inputRef}
           value={title}
         />
-        <Button disabled={title.trim() === ""} type="submit">
+        <Button disabled={!hydrated || title.trim() === ""} type="submit">
           Capture
         </Button>
       </div>

@@ -23,6 +23,7 @@ export interface SyncDeps {
   db: RailsDatabase;
   send: (entry: OutboxEntry) => Promise<SendResult>;
   isOnline?: () => boolean;
+  afterSync?: () => Promise<void>;
 }
 
 /**
@@ -106,7 +107,12 @@ export async function drainOutbox(deps: SyncDeps): Promise<void> {
   const pending = await deps.db.outbox
     .where("status")
     .equals("pending")
-    .sortBy("createdAt");
+    .toArray();
+  pending.sort(
+    (left, right) =>
+      (left.sequence ?? Date.parse(left.createdAt)) -
+      (right.sequence ?? Date.parse(right.createdAt)),
+  );
 
   for (const entry of pending) {
     const result = await deps.send(entry);
@@ -149,6 +155,7 @@ export function createSyncEngine(deps: SyncDeps): SyncEngine {
         do {
           queued = false;
           await drainOutbox(deps);
+          await deps.afterSync?.();
         } while (queued);
       } finally {
         inFlight = null;

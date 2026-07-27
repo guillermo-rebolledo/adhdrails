@@ -2,7 +2,14 @@ import "fake-indexeddb/auto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { captureInboxItem } from "./commands";
+import {
+  captureInboxItem,
+  createThought,
+  deleteThoughtLocally,
+  finalizeThoughtDeletion,
+  restoreThought,
+  updateThought,
+} from "./commands";
 import { RailsDatabase } from "./db";
 
 function freshDatabase(): RailsDatabase {
@@ -52,5 +59,58 @@ describe("captureInboxItem", () => {
 
     expect(await db.inboxItems.count()).toBe(0);
     expect(await db.outbox.count()).toBe(0);
+  });
+});
+
+describe("Thought commands", () => {
+  it("atomically creates a Thought and its offline mutation", async () => {
+    db = freshDatabase();
+
+    const thought = await createThought(db, {
+      title: "  A useful reference  ",
+      body: "  Keep this nearby.  ",
+    });
+
+    expect(thought).toMatchObject({
+      title: "A useful reference",
+      body: "Keep this nearby.",
+      version: 1,
+      deletedAt: null,
+      syncState: "pending",
+    });
+    expect(await db.thoughts.get(thought.id)).toEqual(thought);
+    expect(await db.outbox.toArray()).toEqual([
+      expect.objectContaining({
+        entity: "thought",
+        operation: "create",
+        entityId: thought.id,
+        baseVersion: null,
+      }),
+    ]);
+  });
+
+  it("queues edits and reversible deletion tombstones", async () => {
+    db = freshDatabase();
+    const thought = await createThought(db, { title: "Reference", body: "" });
+    await db.outbox.clear();
+    await db.thoughts.update(thought.id, { syncState: "synced" });
+
+    const updated = await updateThought(db, thought.id, {
+      title: "Updated reference",
+      body: "More context",
+    });
+    const deleted = await deleteThoughtLocally(db, thought.id);
+    const restored = await restoreThought(db, thought.id);
+    await deleteThoughtLocally(db, thought.id);
+    await finalizeThoughtDeletion(db, thought.id);
+
+    expect(updated.version).toBe(2);
+    expect(deleted.deletedAt).not.toBeNull();
+    expect(restored).toMatchObject({ version: 2, deletedAt: null });
+    expect(
+      (await db.outbox.orderBy("sequence").toArray()).map(
+        (entry) => entry.operation,
+      ),
+    ).toEqual(["update", "delete"]);
   });
 });

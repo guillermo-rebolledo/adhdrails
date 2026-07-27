@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { classifyInboxItemAsThought } from "@/offline/commands";
 import type { LocalInboxItem, SyncState } from "@/offline/db";
 import { useOffline } from "@/offline/provider";
 
@@ -22,9 +24,15 @@ const syncStateCopy: Record<SyncState, string> = {
  * are understandable to screen-reader users, not just visually.
  */
 export function InboxList() {
-  const { db } = useOffline();
+  const { db, sync } = useOffline();
+  const [message, setMessage] = useState("");
   const items = useLiveQuery(
-    () => db.inboxItems.orderBy("createdAt").reverse().toArray(),
+    () =>
+      db.inboxItems
+        .orderBy("createdAt")
+        .reverse()
+        .filter((item) => !item.classifiedAt)
+        .toArray(),
     [db],
   );
 
@@ -34,25 +42,57 @@ export function InboxList() {
 
   if (items.length === 0) {
     return (
-      <p className="text-muted-foreground">
-        Your Inbox is calm. Captures will wait here without pressure.
-      </p>
+      <>
+        <p className="sr-only" role="status">
+          {message}
+        </p>
+        <p className="text-muted-foreground">
+          Your Inbox is calm. Captures will wait here without pressure.
+        </p>
+      </>
     );
   }
 
   return (
-    <ul aria-label="Inbox items" className="flex flex-col gap-2">
-      {items.map((item) => (
-        <InboxRow item={item} key={item.id} />
-      ))}
-    </ul>
+    <>
+      <p className="sr-only" role="status">
+        {message}
+      </p>
+      <ul aria-label="Inbox items" className="flex flex-col gap-2">
+        {items.map((item) => (
+          <InboxRow
+            item={item}
+            key={item.id}
+            onSave={async () => {
+              await classifyInboxItemAsThought(db, item);
+              setMessage("Saved as a Thought.");
+              void sync();
+            }}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 
-function InboxRow({ item }: { item: LocalInboxItem }) {
+function InboxRow({
+  item,
+  onSave,
+}: {
+  item: LocalInboxItem;
+  onSave: () => Promise<void>;
+}) {
   return (
-    <li className="flex items-center justify-between gap-4 rounded-lg border bg-card p-3 text-card-foreground">
-      <span className="min-w-0 truncate">{item.title}</span>
+    <li className="flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="truncate">{item.title}</p>
+        <span
+          className="text-xs text-muted-foreground"
+          data-sync-state={item.syncState}
+        >
+          {syncStateCopy[item.syncState]}
+        </span>
+      </div>
       <div className="flex shrink-0 items-center gap-2">
         <Link
           className={buttonVariants({ size: "sm", variant: "ghost" })}
@@ -60,12 +100,9 @@ function InboxRow({ item }: { item: LocalInboxItem }) {
         >
           Turn into task
         </Link>
-        <span
-          className="text-xs text-muted-foreground"
-          data-sync-state={item.syncState}
-        >
-          {syncStateCopy[item.syncState]}
-        </span>
+        <Button onClick={() => void onSave()} size="sm" variant="outline">
+          Save as Thought
+        </Button>
       </div>
     </li>
   );

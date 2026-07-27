@@ -14,8 +14,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
 import { createEventSend } from "./event-send";
 import { createInboxSend } from "./inbox-send";
+import { createThoughtSend } from "./outbox-send";
 import { createTaskSend } from "./task-send";
 import { createSyncEngine, type SendResult, type SyncEngine } from "./sync";
+import { pullThoughts } from "./thought-pull";
 
 /**
  * Routes an outbox entry to the delivery adapter for its entity. The sync
@@ -26,12 +28,14 @@ function createSend(): (entry: OutboxEntry) => Promise<SendResult> {
   const senders = {
     inbox_item: createInboxSend(),
     task: createTaskSend(),
+    thought: createThoughtSend(),
     event: createEventSend(),
   } as const;
   return (entry) => senders[entry.entity](entry);
 }
 
 interface OfflineContextValue {
+  accountId: string;
   db: RailsDatabase;
   /** Ask the sync engine to drain the outbox now (e.g. right after a capture). */
   sync: () => Promise<void>;
@@ -53,9 +57,15 @@ export function useOffline(): OfflineContextValue {
  * Query client for the server-owned views that arrive in later slices. Dexie
  * remains the single owner of optimistic entity state.
  */
-export function OfflineProvider({ children }: { children: ReactNode }) {
+export function OfflineProvider({
+  accountId,
+  children,
+}: {
+  accountId: string;
+  children: ReactNode;
+}) {
   const [queryClient] = useState(() => new QueryClient());
-  const [db] = useState(getClientDatabase);
+  const [db] = useState(() => getClientDatabase(accountId));
   const engineRef = useRef<SyncEngine | null>(null);
 
   useEffect(() => {
@@ -63,6 +73,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       db,
       send: createSend(),
       isOnline: () => navigator.onLine,
+      afterSync: () => pullThoughts(db).catch(() => undefined),
     });
     engineRef.current = engine;
     engine.start();
@@ -75,10 +86,11 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<OfflineContextValue>(
     () => ({
+      accountId,
       db,
       sync: () => engineRef.current?.sync() ?? Promise.resolve(),
     }),
-    [db],
+    [accountId, db],
   );
 
   return (

@@ -21,6 +21,7 @@ export interface LocalInboxItem {
   version: number;
   createdAt: string;
   syncState: SyncState;
+  classifiedAt?: string;
 }
 
 /**
@@ -66,8 +67,20 @@ export interface LocalEvent {
   syncState: SyncState;
 }
 
+export interface LocalThought {
+  id: string;
+  title: string;
+  body: string;
+  sourceInboxItemId: string | null;
+  version: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  syncState: SyncState;
+}
+
 /** Which durable entity a table (and its outbox entries) belongs to. */
-export type SyncEntity = "inbox_item" | "task" | "event";
+export type SyncEntity = "inbox_item" | "task" | "thought" | "event";
 
 export type OutboxOperation = "create" | "update" | "delete";
 export type OutboxStatus = "pending" | "failed";
@@ -89,11 +102,13 @@ export interface OutboxEntry {
   attempts: number;
   lastError: string | null;
   createdAt: string;
+  sequence?: number;
 }
 
 export class RailsDatabase extends Dexie {
   inboxItems!: Table<LocalInboxItem, string>;
   tasks!: Table<LocalTask, string>;
+  thoughts!: Table<LocalThought, string>;
   events!: Table<LocalEvent, string>;
   outbox!: Table<OutboxEntry, string>;
 
@@ -108,24 +123,35 @@ export class RailsDatabase extends Dexie {
       tasks: "id, status, createdAt, deletedAt, syncState",
       outbox: "id, entity, status, createdAt",
     });
-    // `startAt` is indexed so the weekly agenda can range-scan the current week
-    // directly; `deletedAt` supports the optimistic-deletion Undo window.
     this.version(3).stores({
       inboxItems: "id, createdAt, syncState",
       tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // `startAt` is indexed so the weekly agenda can range-scan the current week
+    // directly; `deletedAt` supports the optimistic-deletion Undo window.
+    this.version(4).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
       events: "id, startAt, deletedAt, syncState",
-      outbox: "id, entity, status, createdAt",
+      outbox: "id, entity, status, sequence, createdAt",
     });
   }
 }
 
-let cached: RailsDatabase | null = null;
+const databases = new Map<string, RailsDatabase>();
 
 /**
  * The process-wide client database. Only constructed in the browser, where
  * IndexedDB exists; server and unit-test callers pass their own instance.
  */
-export function getClientDatabase(): RailsDatabase {
-  cached ??= new RailsDatabase();
-  return cached;
+export function getClientDatabase(accountId: string): RailsDatabase {
+  const name = `rails:${accountId}`;
+  const existing = databases.get(name);
+  if (existing) return existing;
+  const database = new RailsDatabase(name);
+  databases.set(name, database);
+  return database;
 }
