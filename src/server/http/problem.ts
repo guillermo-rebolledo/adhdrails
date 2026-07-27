@@ -5,6 +5,7 @@ export type ProblemCode =
   | "route_not_found"
   | "unauthorized"
   | "validation_failed"
+  | "conflict"
   | "not_found";
 
 export interface ProblemDetails {
@@ -16,6 +17,11 @@ export interface ProblemDetails {
   correlationId: string;
   retryable: boolean;
   fieldErrors?: Record<string, string[]>;
+  /**
+   * The server's current view of a contested record, returned with a conflict
+   * so the client can present it for review instead of discarding local data.
+   */
+  current?: unknown;
 }
 
 export function problemResponse(problem: ProblemDetails): Response {
@@ -54,6 +60,23 @@ export function validationProblem(
     correlationId,
     retryable: false,
     fieldErrors,
+  });
+}
+
+export function conflictProblem(
+  correlationId: string,
+  current: unknown,
+): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/conflict",
+    title: "Change conflicts with the server",
+    status: 409,
+    code: "conflict",
+    detail:
+      "This record changed since your local copy. Your change was kept for review.",
+    correlationId,
+    retryable: false,
+    current,
   });
 }
 

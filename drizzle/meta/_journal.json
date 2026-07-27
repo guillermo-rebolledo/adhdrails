@@ -15,6 +15,13 @@
       "when": 1785120950535,
       "tag": "0001_classy_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785125333726,
+      "tag": "0002_sweet_cannonball",
+      "breakpoints": true
     }
   ]
 }
