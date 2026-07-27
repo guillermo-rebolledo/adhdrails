@@ -52,6 +52,16 @@ export function useOffline(): OfflineContextValue {
 }
 
 /**
+ * The offline context when present, or `null` outside an {@link OfflineProvider}.
+ * Lets progressively-enhanced chrome (such as the Inbox unseen badge) render
+ * harmlessly in isolation — for example in a shell unit test — without pulling
+ * in the whole offline stack.
+ */
+export function useOptionalOffline(): OfflineContextValue | null {
+  return useContext(OfflineContext);
+}
+
+/**
  * Wires the client offline stack for the authenticated app: the Dexie replica,
  * the outbox sync engine (draining on mount and on reconnect), and a TanStack
  * Query client for the server-owned views that arrive in later slices. Dexie

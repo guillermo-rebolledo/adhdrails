@@ -18,17 +18,15 @@ export interface CreateTaskOptions {
 }
 
 /**
- * Creates a title-only Task. In one atomic Dexie transaction it writes the
- * optimistic local Task and its create outbox entry, so the Task is never
- * acknowledged locally without a durable instruction to synchronize it. The
- * client-generated id becomes the server id, so the record never needs
- * temporary-ID remapping.
+ * Builds the optimistic local Task and its create outbox entry, without
+ * touching the database. Shared by {@link createTask} and the Inbox-Item
+ * classification path so the Task's local shape and outbox payload have one
+ * definition. The caller commits both records in whatever transaction it owns.
  */
-export async function createTask(
-  db: RailsDatabase,
+export function buildTaskCreate(
   input: CreateTaskInput,
   options: CreateTaskOptions = {},
-): Promise<LocalTask> {
+): { task: LocalTask; entry: OutboxEntry } {
   const id = options.id ?? crypto.randomUUID();
   const idempotencyKey = options.idempotencyKey ?? crypto.randomUUID();
   const createdAt = options.now ?? new Date().toISOString();
@@ -63,6 +61,23 @@ export async function createTask(
     lastError: null,
     createdAt,
   };
+
+  return { task, entry };
+}
+
+/**
+ * Creates a title-only Task. In one atomic Dexie transaction it writes the
+ * optimistic local Task and its create outbox entry, so the Task is never
+ * acknowledged locally without a durable instruction to synchronize it. The
+ * client-generated id becomes the server id, so the record never needs
+ * temporary-ID remapping.
+ */
+export async function createTask(
+  db: RailsDatabase,
+  input: CreateTaskInput,
+  options: CreateTaskOptions = {},
+): Promise<LocalTask> {
+  const { task, entry } = buildTaskCreate(input, options);
 
   await db.transaction("rw", db.tasks, db.outbox, async () => {
     await db.tasks.add(task);

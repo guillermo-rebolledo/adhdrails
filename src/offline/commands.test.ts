@@ -4,9 +4,16 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   captureInboxItem,
+  classifyInboxItemAsEvent,
+  classifyInboxItemAsTask,
+  classifyInboxItemAsThought,
   createThought,
+  deleteInboxItemLocally,
   deleteThoughtLocally,
+  finalizeInboxItemDeletion,
   finalizeThoughtDeletion,
+  markInboxItemsSeen,
+  restoreInboxItem,
   restoreThought,
   updateThought,
 } from "./commands";
@@ -112,5 +119,147 @@ describe("Thought commands", () => {
         (entry) => entry.operation,
       ),
     ).toEqual(["update", "delete"]);
+  });
+});
+
+describe("Inbox classification commands", () => {
+  it("converts an item into a Task and marks the source classified", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Call the dentist tomorrow");
+    await db.outbox.clear();
+
+    const task = await classifyInboxItemAsTask(db, item, {
+      title: "Call the dentist",
+    });
+
+    expect(task).toMatchObject({ title: "Call the dentist", status: "active" });
+    // The source row is retained (recoverable), only stamped classified.
+    const source = await db.inboxItems.get(item.id);
+    expect(source?.classifiedAt).toEqual(expect.any(String));
+    expect(await db.outbox.toArray()).toEqual([
+      expect.objectContaining({ entity: "task", operation: "create" }),
+    ]);
+  });
+
+  it("converts an item into a local timed Event carrying its schedule", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Standup at 9am");
+    await db.outbox.clear();
+
+    const event = await classifyInboxItemAsEvent(db, item, {
+      title: "Standup",
+      startAt: "2026-07-28T09:00:00.000Z",
+      timeZone: "UTC",
+      durationMinutes: 15,
+    });
+
+    expect(event).toMatchObject({
+      title: "Standup",
+      startAt: "2026-07-28T09:00:00.000Z",
+      origin: "local",
+      status: "confirmed",
+    });
+    expect((await db.inboxItems.get(item.id))?.classifiedAt).toEqual(
+      expect.any(String),
+    );
+    expect(await db.events.count()).toBe(1);
+    expect(await db.outbox.toArray()).toEqual([
+      expect.objectContaining({ entity: "event", operation: "create" }),
+    ]);
+  });
+
+  it("converts an item into a Thought linked back to its source", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Reference to keep");
+    await db.outbox.clear();
+
+    const thought = await classifyInboxItemAsThought(db, item);
+
+    expect(thought.sourceInboxItemId).toBe(item.id);
+    expect((await db.inboxItems.get(item.id))?.classifiedAt).toEqual(
+      expect.any(String),
+    );
+  });
+});
+
+describe("markInboxItemsSeen", () => {
+  it("marks every unseen item seen and queues one idempotent update each", async () => {
+    db = freshDatabase();
+    const first = await captureInboxItem(db, "First");
+    const second = await captureInboxItem(db, "Second");
+    await db.outbox.clear();
+
+    await markInboxItemsSeen(db);
+
+    expect((await db.inboxItems.get(first.id))?.seen).toBe(true);
+    expect((await db.inboxItems.get(second.id))?.seen).toBe(true);
+    const updates = await db.outbox.toArray();
+    expect(updates).toHaveLength(2);
+    expect(updates[0]).toMatchObject({
+      entity: "inbox_item",
+      operation: "update",
+      baseVersion: 1,
+    });
+    expect(updates[0].payload).toMatchObject({ patch: { seen: true } });
+  });
+
+  it("does not double-queue when run twice and skips deleted items", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Keep");
+    const gone = await captureInboxItem(db, "Deleting");
+    await deleteInboxItemLocally(db, gone.id);
+    await db.outbox.clear();
+
+    await markInboxItemsSeen(db);
+    await markInboxItemsSeen(db);
+
+    const updates = await db.outbox
+      .filter((entry) => entry.operation === "update")
+      .toArray();
+    expect(updates).toHaveLength(1);
+    expect(updates[0].entityId).toBe(item.id);
+  });
+});
+
+describe("Inbox deletion with Undo", () => {
+  it("hides optimistically, restores, then finalizes with a tombstone delete", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Accidental capture");
+    await db.outbox.clear();
+
+    await deleteInboxItemLocally(db, item.id);
+    expect((await db.inboxItems.get(item.id))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    await restoreInboxItem(db, item.id);
+    expect((await db.inboxItems.get(item.id))?.deletedAt).toBeNull();
+
+    await deleteInboxItemLocally(db, item.id);
+    await finalizeInboxItemDeletion(db, item.id);
+
+    expect(await db.inboxItems.get(item.id)).toBeUndefined();
+    expect(await db.outbox.toArray()).toEqual([
+      expect.objectContaining({
+        entity: "inbox_item",
+        operation: "delete",
+        entityId: item.id,
+        baseVersion: 1,
+      }),
+    ]);
+  });
+
+  it("drops superseded pending mutations when finalizing", async () => {
+    db = freshDatabase();
+    const item = await captureInboxItem(db, "Queued then deleted");
+    // The create is still pending in the outbox from capture.
+    expect(await db.outbox.count()).toBe(1);
+
+    await deleteInboxItemLocally(db, item.id);
+    await finalizeInboxItemDeletion(db, item.id);
+
+    const entries = await db.outbox.toArray();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].operation).toBe("delete");
   });
 });

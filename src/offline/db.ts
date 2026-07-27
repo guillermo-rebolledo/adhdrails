@@ -13,7 +13,13 @@ import type { TaskStatus } from "@/domain/task/task";
 
 export type SyncState = "pending" | "synced" | "failed" | "conflict";
 
-/** An Inbox Item as the client holds it, including its local sync status. */
+/**
+ * An Inbox Item as the client holds it, including its local sync status. `seen`
+ * drives the numberless unseen badge (false means unseen). `classifiedAt` marks
+ * an item converted into a Task, Event, or Thought; it stays in the replica so a
+ * failed destination write leaves the source recoverable. `deletedAt` marks an
+ * optimistic app-owned deletion during its 10-second Undo window.
+ */
 export interface LocalInboxItem {
   id: string;
   title: string;
@@ -22,6 +28,7 @@ export interface LocalInboxItem {
   createdAt: string;
   syncState: SyncState;
   classifiedAt?: string;
+  deletedAt?: string | null;
 }
 
 /**
@@ -133,6 +140,16 @@ export class RailsDatabase extends Dexie {
     // directly; `deletedAt` supports the optimistic-deletion Undo window.
     this.version(4).stores({
       inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Inbox Items gain `deletedAt` as an index for the deletion Undo window.
+    // `seen` is a boolean, which IndexedDB cannot use as a key, so the unseen
+    // badge filters it in memory over the (small) unclassified set instead.
+    this.version(5).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
       tasks: "id, status, createdAt, deletedAt, syncState",
       thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
       events: "id, startAt, deletedAt, syncState",

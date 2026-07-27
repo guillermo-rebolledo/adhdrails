@@ -2,10 +2,15 @@ import {
   type InboxItemResponse,
   inboxItemResponseSchema,
 } from "@/domain/inbox/capture";
-import { conflictProblem, validationProblem } from "@/server/http/problem";
+import {
+  conflictProblem,
+  goneProblem,
+  notFoundProblem,
+  validationProblem,
+} from "@/server/http/problem";
 
 import type { InboxItemRecord } from "./repository";
-import type { InboxCaptureResult } from "./service";
+import type { InboxCaptureResult, InboxUpdateResult } from "./service";
 
 export function serializeInboxItem(record: InboxItemRecord): InboxItemResponse {
   return inboxItemResponseSchema.parse({
@@ -23,7 +28,32 @@ export function inboxCaptureFailureResponse(
   result: Extract<InboxCaptureResult, { ok: false }>,
   correlationId: string,
 ): Response {
-  return result.reason === "invalid"
-    ? validationProblem(correlationId, result.fieldErrors)
-    : conflictProblem(correlationId, serializeInboxItem(result.current));
+  switch (result.reason) {
+    case "invalid":
+      return validationProblem(correlationId, result.fieldErrors);
+    case "conflict":
+      return conflictProblem(correlationId, serializeInboxItem(result.current));
+    case "gone":
+      return goneProblem(correlationId);
+  }
+}
+
+/** Maps a failed update outcome to its Problem Details response. */
+export function inboxUpdateFailureResponse(
+  result: Extract<InboxUpdateResult, { ok: false }>,
+  correlationId: string,
+): Response {
+  switch (result.reason) {
+    case "invalid":
+      return validationProblem(correlationId, result.fieldErrors);
+    case "conflict":
+      return conflictProblem(correlationId, serializeInboxItem(result.current));
+    case "not_found":
+      return notFoundProblem(
+        correlationId,
+        "This inbox item no longer exists.",
+      );
+    case "gone":
+      return goneProblem(correlationId);
+  }
 }

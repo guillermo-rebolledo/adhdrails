@@ -27,19 +27,17 @@ export interface CreateEventOptions {
 }
 
 /**
- * Creates a local timed Event. The end defaults to 30 minutes after the start,
- * matching the MVP's fast-entry default. In one atomic Dexie transaction it
- * writes the optimistic local Event and its create outbox entry, so the Event is
- * never acknowledged locally without a durable instruction to synchronize it.
- * The client-generated id becomes the server id, so the record never needs
- * temporary-ID remapping. Local Events are timed, confirmed, and non-recurring;
+ * Builds the optimistic local Event and its create outbox entry, without
+ * touching the database. The end defaults to 30 minutes after the start,
+ * matching the MVP's fast-entry default. Shared by {@link createEvent} and the
+ * Inbox-Item classification path so the Event's local shape and outbox payload
+ * have one definition. Local Events are timed, confirmed, and non-recurring;
  * all-day and recurring Events arrive only through Google import.
  */
-export async function createEvent(
-  db: RailsDatabase,
+export function buildEventCreate(
   input: CreateEventInput,
   options: CreateEventOptions = {},
-): Promise<LocalEvent> {
+): { event: LocalEvent; entry: OutboxEntry } {
   const id = options.id ?? crypto.randomUUID();
   const idempotencyKey = options.idempotencyKey ?? crypto.randomUUID();
   const createdAt = options.now ?? new Date().toISOString();
@@ -88,6 +86,23 @@ export async function createEvent(
     lastError: null,
     createdAt,
   };
+
+  return { event, entry };
+}
+
+/**
+ * Creates a local timed Event. In one atomic Dexie transaction it writes the
+ * optimistic local Event and its create outbox entry, so the Event is never
+ * acknowledged locally without a durable instruction to synchronize it. The
+ * client-generated id becomes the server id, so the record never needs
+ * temporary-ID remapping.
+ */
+export async function createEvent(
+  db: RailsDatabase,
+  input: CreateEventInput,
+  options: CreateEventOptions = {},
+): Promise<LocalEvent> {
+  const { event, entry } = buildEventCreate(input, options);
 
   await db.transaction("rw", db.events, db.outbox, async () => {
     await db.events.add(event);
