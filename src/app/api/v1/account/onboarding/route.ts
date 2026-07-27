@@ -5,11 +5,9 @@ import {
   type AccountService,
   createAccountService,
 } from "@/server/account/service";
-import {
-  accountFailureResponse,
-  accountJsonResponse,
-} from "@/server/account/http";
+import { accountFailureResponse } from "@/server/account/http";
 import { getDatabase } from "@/server/db/connection";
+import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
@@ -38,16 +36,9 @@ export function createOnboardingRouteHandler(
       return unauthorizedProblem(correlationId);
     }
 
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      payload = undefined;
-    }
-
     const result = await deps
       .getService()
-      .completeOnboarding(account.userId, payload);
+      .completeOnboarding(account.userId, await readJsonPayload(request));
 
     if (!result.ok) {
       return accountFailureResponse(result, correlationId);
@@ -59,7 +50,7 @@ export function createOnboardingRouteHandler(
       outcome: "success",
     });
 
-    return accountJsonResponse(
+    return jsonResponse(
       {
         userId: result.profile.userId,
         timezone: result.profile.timezone,

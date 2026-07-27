@@ -6,10 +6,10 @@ import {
 } from "@/server/account/service";
 import {
   accountFailureResponse,
-  accountJsonResponse,
   serializeAccountProfile,
 } from "@/server/account/http";
 import { getDatabase } from "@/server/db/connection";
+import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
@@ -27,14 +27,6 @@ const dependencies: AccountRouteDependencies = {
   createCorrelationId: correlationIdFrom,
 };
 
-async function readPayload(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return undefined;
-  }
-}
-
 export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
   async function GET(request: Request): Promise<Response> {
     const correlationId = deps.createCorrelationId(request);
@@ -47,10 +39,7 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
     const result = await deps.getService().getProfile(account.userId);
 
     return result.ok
-      ? accountJsonResponse(
-          serializeAccountProfile(result.profile),
-          correlationId,
-        )
+      ? jsonResponse(serializeAccountProfile(result.profile), correlationId)
       : accountFailureResponse(result, correlationId);
   }
 
@@ -64,7 +53,7 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
 
     const result = await deps
       .getService()
-      .updateProfile(account.userId, await readPayload(request));
+      .updateProfile(account.userId, await readJsonPayload(request));
 
     if (!result.ok) {
       return accountFailureResponse(result, correlationId);
@@ -76,10 +65,7 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
       outcome: "success",
     });
 
-    return accountJsonResponse(
-      serializeAccountProfile(result.profile),
-      correlationId,
-    );
+    return jsonResponse(serializeAccountProfile(result.profile), correlationId);
   }
 
   return { GET, PATCH };

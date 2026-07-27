@@ -1,5 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// Vitest isn't configured with globals, so Testing Library's automatic
+// afterEach cleanup never registers. Unmount rendered trees between tests so
+// repeat renders don't collide.
+afterEach(() => {
+  cleanup();
+});
+
 if (typeof window !== "undefined") {
   const values = new Map<string, string>();
   const localStorage = {

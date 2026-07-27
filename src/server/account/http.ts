@@ -7,7 +7,6 @@ import {
   accountNotFoundProblem,
   validationProblem,
 } from "@/server/http/problem";
-import { CORRELATION_ID_HEADER } from "@/server/observability/correlation-id";
 
 import type { AccountProfile } from "./repository";
 import type { AccountResult } from "./service";
@@ -23,18 +22,6 @@ export function serializeAccountProfile(
     locale: profile.locale,
     onboardingCompleted: hasCompletedOnboarding(profile),
     onboardingCompletedAt: profile.onboardingCompletedAt?.toISOString() ?? null,
-  });
-}
-
-export function accountJsonResponse(
-  body: unknown,
-  correlationId: string,
-): Response {
-  return Response.json(body, {
-    headers: {
-      [CORRELATION_ID_HEADER]: correlationId,
-      "cache-control": "no-store",
-    },
   });
 }
 

@@ -1,4 +1,12 @@
-import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 export const seedRecords = pgTable("seed_records", {
   id: uuid("id").primaryKey(),
@@ -75,6 +83,40 @@ export const account = pgTable("account", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Captured, still-unclassified material owned by one account. The primary key
+ * is the client-generated UUID from Quick Capture, so an offline record keeps
+ * the same identity once it synchronizes. `version` and `idempotencyKey`
+ * support safe retries and reviewable conflicts for the offline mutation
+ * tracer; `seenAt` drives the numberless unseen badge (null means unseen).
+ */
+export const inboxItem = pgTable(
+  "inbox_item",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    version: integer("version").notNull().default(1),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("inbox_item_account_created_idx").on(
+      table.userId,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
 
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
