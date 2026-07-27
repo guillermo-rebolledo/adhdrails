@@ -1,6 +1,11 @@
 import { CORRELATION_ID_HEADER } from "@/server/observability/correlation-id";
 
-export type ProblemCode = "database_unavailable" | "route_not_found";
+export type ProblemCode =
+  | "database_unavailable"
+  | "route_not_found"
+  | "unauthorized"
+  | "validation_failed"
+  | "not_found";
 
 export interface ProblemDetails {
   type: `https://rails.app/problems/${string}`;
@@ -21,5 +26,33 @@ export function problemResponse(problem: ProblemDetails): Response {
       "content-type": "application/problem+json",
       [CORRELATION_ID_HEADER]: problem.correlationId,
     },
+  });
+}
+
+export function unauthorizedProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/unauthorized",
+    title: "Sign in required",
+    status: 401,
+    code: "unauthorized",
+    detail: "This request requires an authenticated Rails account.",
+    correlationId,
+    retryable: false,
+  });
+}
+
+export function validationProblem(
+  correlationId: string,
+  fieldErrors: Record<string, string[]>,
+): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/validation-failed",
+    title: "Invalid request",
+    status: 422,
+    code: "validation_failed",
+    detail: "Some fields need attention before this request can be saved.",
+    correlationId,
+    retryable: false,
+    fieldErrors,
   });
 }

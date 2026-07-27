@@ -62,6 +62,10 @@ try {
     ...process.env,
     APP_ENV: "test",
     DATABASE_URL: `postgresql://rails:rails@127.0.0.1:${port}/rails_test`,
+    BETTER_AUTH_URL: "http://127.0.0.1:3100",
+    BETTER_AUTH_SECRET: "rails-test-secret-value-not-for-production",
+    GOOGLE_CLIENT_ID: "rails-test-google-client-id",
+    GOOGLE_CLIENT_SECRET: "rails-test-google-client-secret",
   };
 
   await runCommand("pnpm", ["db:migrate"], environment);

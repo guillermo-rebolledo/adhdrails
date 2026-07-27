@@ -8,6 +8,13 @@
       "when": 1785113178200,
       "tag": "0000_first_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785120950535,
+      "tag": "0001_classy_living_mummy",
+      "breakpoints": true
     }
   ]
 }
