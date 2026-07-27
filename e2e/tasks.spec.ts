@@ -43,6 +43,68 @@ test.describe("task UI journeys", () => {
       .toContain("Write the release notes");
   });
 
+  test("adds planning metadata and a created Area, and persists them", async ({
+    page,
+  }) => {
+    await signIn(page, { onboarded: true });
+    await page.goto("/tasks/new");
+
+    await page
+      .getByRole("textbox", { name: "Task title" })
+      .fill("Prepare the deck");
+    await page.getByLabel("Scheduled for").fill("2026-08-01");
+    await page.getByLabel("Time (optional)").fill("09:30");
+    await page.getByLabel("Estimate (minutes)").fill("45");
+    await page.getByRole("radio", { name: "High" }).check();
+    await page.getByRole("checkbox", { name: "Important" }).check();
+
+    // Create an Area on entry from the combobox.
+    const area = page.getByRole("combobox");
+    await area.click();
+    await area.fill("Marketing");
+    await page.getByText('Create "Marketing"').click();
+
+    await page.getByRole("button", { name: "Create task" }).click();
+    await expect(page).toHaveURL(/\/today$/);
+
+    // The Area reaches the server.
+    async function fetchMarketingId(): Promise<string | null> {
+      const areas = (await (
+        await page.request.get("/api/v1/areas")
+      ).json()) as { items: { id: string; name: string }[] };
+      return areas.items.find((item) => item.name === "Marketing")?.id ?? null;
+    }
+    await expect.poll(fetchMarketingId).not.toBeNull();
+    const areaId = await fetchMarketingId();
+
+    // The metadata round-trips through the server too, linked to that Area.
+    await expect
+      .poll(async () => {
+        const body = (await (
+          await page.request.get("/api/v1/tasks")
+        ).json()) as {
+          items: {
+            title: string;
+            scheduledDate: string | null;
+            scheduledTime: string | null;
+            estimateMinutes: number | null;
+            energy: string | null;
+            important: boolean;
+            areaId: string | null;
+          }[];
+        };
+        return body.items.find((item) => item.title === "Prepare the deck");
+      })
+      .toMatchObject({
+        scheduledDate: "2026-08-01",
+        scheduledTime: "09:30",
+        estimateMinutes: 45,
+        energy: "high",
+        important: true,
+        areaId,
+      });
+  });
+
   test("completes a task with a calm acknowledgement and can undo", async ({
     page,
   }) => {

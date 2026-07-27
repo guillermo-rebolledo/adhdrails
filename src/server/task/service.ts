@@ -24,16 +24,43 @@ export type TaskUpdateResult =
   | { ok: false; reason: "gone" };
 
 /**
+ * Verifies an Area referenced by a Task belongs to the same account. The Task's
+ * `area_id` foreign key only enforces global existence, so without this a client
+ * could attach another account's Area id to its Task. Returns `true` when there
+ * is no Area to check (unset or cleared).
+ */
+export type AreaOwnershipCheck = (
+  userId: string,
+  areaId: string,
+) => Promise<boolean>;
+
+const AREA_FIELD_ERROR: Record<string, string[]> = {
+  areaId: ["That area could not be found."],
+};
+
+/**
  * Owns the Task use cases: validate a mutation, resolve it against the stored
  * world (including deletion tombstones), and report a domain-level outcome.
  * Idempotent retries return the stored record; a stale base version returns a
- * conflict so the client's local change is retained for review. Route handlers
+ * conflict so the client's local change is retained for review. A referenced
+ * Area is verified to belong to the account before it is written. Route handlers
  * translate the outcome to HTTP.
  */
 export function createTaskService(
   repository: TaskRepository,
   now: () => Date = () => new Date(),
+  areaBelongsToUser: AreaOwnershipCheck = async () => true,
 ) {
+  async function areaReferenceIsValid(
+    userId: string,
+    areaId: string | null | undefined,
+  ): Promise<boolean> {
+    if (areaId == null) {
+      return true;
+    }
+    return areaBelongsToUser(userId, areaId);
+  }
+
   return {
     async create(userId: string, rawInput: unknown): Promise<TaskCreateResult> {
       const parsed = taskCreateRequestSchema.safeParse(rawInput);
@@ -46,6 +73,9 @@ export function createTaskService(
       }
 
       const input = parsed.data;
+      if (!(await areaReferenceIsValid(userId, input.areaId))) {
+        return { ok: false, reason: "invalid", fieldErrors: AREA_FIELD_ERROR };
+      }
       const tombstoned = await repository.isTombstoned(userId, input.id);
       const existing = await repository.getById(userId, input.id);
       const resolution = resolveCreate(existing, input, tombstoned);
@@ -79,6 +109,9 @@ export function createTaskService(
       }
 
       const input = parsed.data;
+      if (!(await areaReferenceIsValid(userId, input.patch.areaId))) {
+        return { ok: false, reason: "invalid", fieldErrors: AREA_FIELD_ERROR };
+      }
       const tombstoned = await repository.isTombstoned(userId, id);
       const existing = await repository.getById(userId, id);
       const resolution = resolveUpdate(existing, input, tombstoned);

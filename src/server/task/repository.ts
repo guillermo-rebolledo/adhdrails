@@ -8,6 +8,13 @@ export interface TaskRecord {
   id: string;
   title: string;
   status: string;
+  scheduledDate: string | null;
+  scheduledTime: string | null;
+  estimateMinutes: number | null;
+  energy: string | null;
+  important: boolean;
+  notes: string;
+  areaId: string | null;
   completedAt: Date | null;
   version: number;
   idempotencyKey: string;
@@ -19,6 +26,13 @@ const recordColumns = {
   id: task.id,
   title: task.title,
   status: task.status,
+  scheduledDate: task.scheduledDate,
+  scheduledTime: task.scheduledTime,
+  estimateMinutes: task.estimateMinutes,
+  energy: task.energy,
+  important: task.important,
+  notes: task.notes,
+  areaId: task.areaId,
   completedAt: task.completedAt,
   version: task.version,
   idempotencyKey: task.idempotencyKey,
@@ -72,6 +86,17 @@ export function createTaskRepository(database: Database) {
           userId,
           title: input.title,
           idempotencyKey: input.idempotencyKey,
+          // Planning metadata is optional; an omitted field falls back to the
+          // column default (null, or `false`/`""` for important/notes).
+          scheduledDate: input.scheduledDate ?? null,
+          scheduledTime: input.scheduledTime ?? null,
+          estimateMinutes: input.estimateMinutes ?? null,
+          energy: input.energy ?? null,
+          ...(input.important !== undefined
+            ? { important: input.important }
+            : {}),
+          ...(input.notes !== undefined ? { notes: input.notes } : {}),
+          areaId: input.areaId ?? null,
         })
         .returning(recordColumns);
 
@@ -83,15 +108,29 @@ export function createTaskRepository(database: Database) {
       id: string,
       write: TaskUpdateWrite,
     ): Promise<TaskRecord> {
+      const { patch } = write;
       const [row] = await database
         .update(task)
         .set({
-          ...(write.patch.title !== undefined
-            ? { title: write.patch.title }
+          // Only the fields present in the patch are written; a field set to
+          // `null` clears it, while an absent field is left untouched.
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...("scheduledDate" in patch
+            ? { scheduledDate: patch.scheduledDate ?? null }
             : {}),
-          ...(write.patch.status !== undefined
-            ? { status: write.patch.status }
+          ...("scheduledTime" in patch
+            ? { scheduledTime: patch.scheduledTime ?? null }
             : {}),
+          ...("estimateMinutes" in patch
+            ? { estimateMinutes: patch.estimateMinutes ?? null }
+            : {}),
+          ...("energy" in patch ? { energy: patch.energy ?? null } : {}),
+          ...(patch.important !== undefined
+            ? { important: patch.important }
+            : {}),
+          ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+          ...("areaId" in patch ? { areaId: patch.areaId ?? null } : {}),
           completedAt: write.completedAt,
           version: write.version,
           idempotencyKey: write.idempotencyKey,

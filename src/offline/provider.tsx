@@ -11,6 +11,7 @@ import {
 } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { createAreaSend } from "./area-send";
 import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
 import { createEventSend } from "./event-send";
 import { createInboxSend } from "./inbox-send";
@@ -30,6 +31,7 @@ function createSend(): (entry: OutboxEntry) => Promise<SendResult> {
     task: createTaskSend(),
     thought: createThoughtSend(),
     event: createEventSend(),
+    area: createAreaSend(),
   } as const;
   return (entry) => senders[entry.entity](entry);
 }

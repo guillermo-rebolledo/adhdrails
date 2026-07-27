@@ -1,26 +1,26 @@
+import { getDatabase } from "@/server/db/connection";
 import { getAccountSummary } from "@/server/auth/session";
+import { areaCreateFailureResponse, serializeArea } from "@/server/area/http";
+import { createAreaRepository } from "@/server/area/repository";
+import { type AreaService, createAreaService } from "@/server/area/service";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
-import { serializeTask, taskCreateFailureResponse } from "@/server/task/http";
-import type { TaskService } from "@/server/task/service";
 
-import { taskServiceFor } from "./service-factory";
-
-export interface TasksRouteDependencies {
+export interface AreasRouteDependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  getService: () => TaskService;
+  getService: () => AreaService;
   createCorrelationId: (request: Request) => string;
 }
 
-const dependencies: TasksRouteDependencies = {
+const dependencies: AreasRouteDependencies = {
   getAccountSummary,
-  getService: taskServiceFor,
+  getService: () => createAreaService(createAreaRepository(getDatabase())),
   createCorrelationId: correlationIdFrom,
 };
 
-export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
+export function createAreasRouteHandlers(deps: AreasRouteDependencies) {
   async function GET(request: Request): Promise<Response> {
     const correlationId = deps.createCorrelationId(request);
     const account = await deps.getAccountSummary(request.headers);
@@ -29,9 +29,9 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
       return unauthorizedProblem(correlationId);
     }
 
-    const items = await deps.getService().listActiveForAccount(account.userId);
+    const items = await deps.getService().listForAccount(account.userId);
 
-    return jsonResponse({ items: items.map(serializeTask) }, correlationId);
+    return jsonResponse({ items: items.map(serializeArea) }, correlationId);
   }
 
   async function POST(request: Request): Promise<Response> {
@@ -47,19 +47,19 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
       .create(account.userId, await readJsonPayload(request));
 
     if (!result.ok) {
-      return taskCreateFailureResponse(result, correlationId);
+      return areaCreateFailureResponse(result, correlationId);
     }
 
     if (result.created) {
       logOperationalEvent({
         correlationId,
-        action: "task.created",
+        action: "area.created",
         outcome: "success",
       });
     }
 
     return jsonResponse(
-      serializeTask(result.item),
+      serializeArea(result.item),
       correlationId,
       result.created ? 201 : 200,
     );
@@ -68,7 +68,7 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
   return { GET, POST };
 }
 
-const handlers = createTasksRouteHandlers(dependencies);
+const handlers = createAreasRouteHandlers(dependencies);
 
 export const GET = handlers.GET;
 export const POST = handlers.POST;

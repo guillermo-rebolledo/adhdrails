@@ -1,12 +1,12 @@
-import { getDatabase } from "@/server/db/connection";
 import { getAccountSummary } from "@/server/auth/session";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
 import { serializeTask, taskUpdateFailureResponse } from "@/server/task/http";
-import { createTaskRepository } from "@/server/task/repository";
-import { type TaskService, createTaskService } from "@/server/task/service";
+import type { TaskService } from "@/server/task/service";
+
+import { taskServiceFor } from "../service-factory";
 
 export interface TaskItemRouteDependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
@@ -16,7 +16,7 @@ export interface TaskItemRouteDependencies {
 
 const dependencies: TaskItemRouteDependencies = {
   getAccountSummary,
-  getService: () => createTaskService(createTaskRepository(getDatabase())),
+  getService: taskServiceFor,
   createCorrelationId: correlationIdFrom,
 };
 

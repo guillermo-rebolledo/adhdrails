@@ -1,5 +1,5 @@
 import type { EventOrigin, EventStatus } from "@/domain/event/event";
-import type { TaskStatus } from "@/domain/task/task";
+import type { TaskEnergy, TaskStatus } from "@/domain/task/task";
 
 import type { RailsDatabase, SyncEntity, SyncState } from "./db";
 
@@ -62,6 +62,13 @@ const taskReconciler: EntityReconciler = {
         ...local,
         title: server.title as string,
         status: server.status as TaskStatus,
+        scheduledDate: (server.scheduledDate as string | null) ?? null,
+        scheduledTime: (server.scheduledTime as string | null) ?? null,
+        estimateMinutes: (server.estimateMinutes as number | null) ?? null,
+        energy: (server.energy as TaskEnergy | null) ?? null,
+        important: server.important as boolean,
+        notes: server.notes as string,
+        areaId: (server.areaId as string | null) ?? null,
         completedAt: (server.completedAt as string | null) ?? null,
         version: server.version as number,
         syncState: "synced",
@@ -140,9 +147,33 @@ const eventReconciler: EntityReconciler = {
   },
 };
 
+const areaReconciler: EntityReconciler = {
+  async applyServer(db, entityId, server) {
+    const local = await db.areas.get(entityId);
+    if (local) {
+      await db.areas.put({
+        ...local,
+        name: server.name as string,
+        version: server.version as number,
+        syncState: "synced",
+      });
+    }
+  },
+  async removeLocal(db, entityId) {
+    await db.areas.delete(entityId);
+  },
+  async markState(db, entityId, state) {
+    const local = await db.areas.get(entityId);
+    if (local && local.syncState !== "synced") {
+      await db.areas.put({ ...local, syncState: state });
+    }
+  },
+};
+
 export const reconcilers: Record<SyncEntity, EntityReconciler> = {
   inbox_item: inboxReconciler,
   task: taskReconciler,
   thought: thoughtReconciler,
   event: eventReconciler,
+  area: areaReconciler,
 };

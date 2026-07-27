@@ -1,5 +1,6 @@
 import {
   type TaskResponse,
+  taskEnergySchema,
   taskResponseSchema,
   taskStatusSchema,
 } from "@/domain/task/task";
@@ -18,6 +19,14 @@ export function serializeTask(record: TaskRecord): TaskResponse {
     id: record.id,
     title: record.title,
     status: taskStatusSchema.parse(record.status),
+    scheduledDate: record.scheduledDate,
+    scheduledTime: record.scheduledTime,
+    estimateMinutes: record.estimateMinutes,
+    energy:
+      record.energy === null ? null : taskEnergySchema.parse(record.energy),
+    important: record.important,
+    notes: record.notes,
+    areaId: record.areaId,
     completedAt: record.completedAt?.toISOString() ?? null,
     version: record.version,
     createdAt: record.createdAt.toISOString(),

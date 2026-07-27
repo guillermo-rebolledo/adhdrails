@@ -1,7 +1,7 @@
 import Dexie, { type Table } from "dexie";
 
 import type { EventOrigin, EventStatus } from "@/domain/event/event";
-import type { TaskStatus } from "@/domain/task/task";
+import type { TaskEnergy, TaskStatus } from "@/domain/task/task";
 
 /**
  * Dexie/IndexedDB owns the durable local replica for offline-capable domain
@@ -36,15 +36,38 @@ export interface LocalInboxItem {
  * version so an update can carry a correct base version. `deletedAt` marks an
  * optimistic deletion during its 10-second Undo window; the row is only removed
  * from the replica once the deletion finalizes and its outbox entry is queued.
+ * Planning metadata is all optional: a `scheduledDate` with no `scheduledTime`
+ * is a date-only Task, `energy` unset means Any, `important` is a plain Boolean,
+ * and `areaId` references at most one local Area.
  */
 export interface LocalTask {
   id: string;
   title: string;
   status: TaskStatus;
+  scheduledDate: string | null;
+  scheduledTime: string | null;
+  estimateMinutes: number | null;
+  energy: TaskEnergy | null;
+  important: boolean;
+  notes: string;
+  areaId: string | null;
   completedAt: string | null;
   version: number;
   createdAt: string;
   deletedAt: string | null;
+  syncState: SyncState;
+}
+
+/**
+ * An Area as the client holds it. Areas are created on entry from the Task form's
+ * combobox and reused by name locally, so the client id is the server id and no
+ * temporary-ID remapping is ever needed. Areas have no delete path in the MVP.
+ */
+export interface LocalArea {
+  id: string;
+  name: string;
+  version: number;
+  createdAt: string;
   syncState: SyncState;
 }
 
@@ -87,7 +110,7 @@ export interface LocalThought {
 }
 
 /** Which durable entity a table (and its outbox entries) belongs to. */
-export type SyncEntity = "inbox_item" | "task" | "thought" | "event";
+export type SyncEntity = "inbox_item" | "task" | "thought" | "event" | "area";
 
 export type OutboxOperation = "create" | "update" | "delete";
 export type OutboxStatus = "pending" | "failed";
@@ -117,6 +140,7 @@ export class RailsDatabase extends Dexie {
   tasks!: Table<LocalTask, string>;
   thoughts!: Table<LocalThought, string>;
   events!: Table<LocalEvent, string>;
+  areas!: Table<LocalArea, string>;
   outbox!: Table<OutboxEntry, string>;
 
   constructor(name = "rails") {
@@ -153,6 +177,16 @@ export class RailsDatabase extends Dexie {
       tasks: "id, status, createdAt, deletedAt, syncState",
       thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
       events: "id, startAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Areas join the replica so the Task form's combobox can list and reuse them
+    // offline. They are indexed by `name` for the combobox's alphabetical list.
+    this.version(6).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
       outbox: "id, entity, status, sequence, createdAt",
     });
   }

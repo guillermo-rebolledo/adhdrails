@@ -61,6 +61,59 @@ describe("createTask", () => {
   });
 });
 
+describe("createTask with planning metadata", () => {
+  it("stores optional planning fields and carries them in the create payload", async () => {
+    db = freshDatabase();
+    const areaId = "33333333-3333-4333-8333-333333333333";
+
+    const task = await createTask(db, {
+      title: "Write the report",
+      scheduledDate: "2026-08-01",
+      scheduledTime: "09:30",
+      estimateMinutes: 25,
+      energy: "high",
+      important: true,
+      notes: "Draft first.",
+      areaId,
+    });
+
+    expect(task).toMatchObject({
+      scheduledDate: "2026-08-01",
+      scheduledTime: "09:30",
+      estimateMinutes: 25,
+      energy: "high",
+      important: true,
+      notes: "Draft first.",
+      areaId,
+    });
+
+    const [entry] = await db.outbox.toArray();
+    expect(entry.payload).toMatchObject({
+      scheduledDate: "2026-08-01",
+      scheduledTime: "09:30",
+      energy: "high",
+      important: true,
+      areaId,
+    });
+  });
+
+  it("defaults a title-only Task's metadata to unset", async () => {
+    db = freshDatabase();
+
+    const task = await createTask(db, { title: "Just a title" });
+
+    expect(task).toMatchObject({
+      scheduledDate: null,
+      scheduledTime: null,
+      estimateMinutes: null,
+      energy: null,
+      important: false,
+      notes: "",
+      areaId: null,
+    });
+  });
+});
+
 describe("updateTask", () => {
   it("edits fields and queues a single update carrying the base version", async () => {
     db = freshDatabase();
@@ -82,6 +135,38 @@ describe("updateTask", () => {
     expect(outbox[0].payload).toMatchObject({
       baseVersion: 4,
       patch: { title: "Final draft" },
+    });
+  });
+
+  it("applies planning metadata and clears a field patched to null", async () => {
+    db = freshDatabase();
+    const task = await createTask(db, {
+      title: "Draft",
+      scheduledDate: "2026-08-01",
+      areaId: "33333333-3333-4333-8333-333333333333",
+    });
+    await db.tasks.update(task.id, { version: 3, syncState: "synced" });
+    await db.outbox.clear();
+
+    await updateTask(db, task.id, {
+      energy: "low",
+      important: true,
+      areaId: null,
+    });
+
+    const stored = await db.tasks.get(task.id);
+    expect(stored).toMatchObject({
+      scheduledDate: "2026-08-01",
+      energy: "low",
+      important: true,
+      areaId: null,
+    });
+
+    const [entry] = await db.outbox.toArray();
+    expect(entry.payload.patch).toMatchObject({
+      energy: "low",
+      important: true,
+      areaId: null,
     });
   });
 
