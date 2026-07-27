@@ -6,7 +6,8 @@ export type ProblemCode =
   | "unauthorized"
   | "validation_failed"
   | "conflict"
-  | "not_found";
+  | "not_found"
+  | "gone";
 
 export interface ProblemDetails {
   type: `https://rails.app/problems/${string}`;
@@ -77,6 +78,37 @@ export function conflictProblem(
     correlationId,
     retryable: false,
     current,
+  });
+}
+
+export function notFoundProblem(
+  correlationId: string,
+  detail = "The requested record does not exist.",
+): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/not-found",
+    title: "Not found",
+    status: 404,
+    code: "not_found",
+    detail,
+    correlationId,
+    retryable: false,
+  });
+}
+
+/**
+ * The record was deliberately deleted and tombstoned. A queued create or update
+ * that arrives afterward must not resurrect it; the client drops its local copy.
+ */
+export function goneProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/gone",
+    title: "Record was deleted",
+    status: 410,
+    code: "gone",
+    detail: "This record was deleted and cannot be changed.",
+    correlationId,
+    retryable: false,
   });
 }
 

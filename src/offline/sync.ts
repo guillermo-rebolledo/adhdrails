@@ -1,18 +1,22 @@
-import type { InboxItemResponse } from "@/domain/inbox/capture";
-
+import { reconcilers } from "./entities";
 import type { OutboxEntry, RailsDatabase } from "./db";
 
 /**
  * Outcome of delivering one outbox entry to the server:
- * - `ok` — the server confirmed the record; reconcile and drop the entry.
+ * - `ok` — the server confirmed the mutation; reconcile and drop the entry.
+ *   `item` carries the server record for a create/update and is absent for a
+ *   delete.
  * - `conflict` — the server has divergent data; keep the local change and mark
  *   it for review rather than discarding it.
+ * - `gone` — the record was deleted and tombstoned; drop the local copy and the
+ *   entry so a queued mutation never resurrects it.
  * - `retry` — a transient failure (offline, network, 5xx); leave the entry
  *   pending so a later drain can try again.
  */
 export type SendResult =
-  | { ok: true; item: InboxItemResponse }
-  | { ok: false; kind: "conflict"; current: InboxItemResponse }
+  | { ok: true; item?: unknown }
+  | { ok: false; kind: "conflict"; current: unknown }
+  | { ok: false; kind: "gone" }
   | { ok: false; kind: "retry"; message: string };
 
 export interface SyncDeps {
@@ -31,18 +35,18 @@ export const MAX_SEND_ATTEMPTS = 5;
 async function reconcileSuccess(
   db: RailsDatabase,
   entry: OutboxEntry,
-  item: InboxItemResponse,
+  item: unknown,
 ): Promise<void> {
-  await db.transaction("rw", db.inboxItems, db.outbox, async () => {
-    const local = await db.inboxItems.get(entry.entityId);
-    if (local) {
-      await db.inboxItems.put({
-        ...local,
-        title: item.title,
-        seen: item.seen,
-        version: item.version,
-        syncState: "synced",
-      });
+  const reconciler = reconcilers[entry.entity];
+  await db.transaction("rw", db.tables, async () => {
+    if (entry.operation === "delete") {
+      await reconciler.removeLocal(db, entry.entityId);
+    } else if (item) {
+      await reconciler.applyServer(
+        db,
+        entry.entityId,
+        item as Record<string, unknown>,
+      );
     }
     await db.outbox.delete(entry.id);
   });
@@ -52,16 +56,23 @@ async function reconcileConflict(
   db: RailsDatabase,
   entry: OutboxEntry,
 ): Promise<void> {
-  await db.transaction("rw", db.inboxItems, db.outbox, async () => {
-    const local = await db.inboxItems.get(entry.entityId);
-    if (local) {
-      await db.inboxItems.put({ ...local, syncState: "conflict" });
-    }
+  await db.transaction("rw", db.tables, async () => {
+    await reconcilers[entry.entity].markState(db, entry.entityId, "conflict");
     await db.outbox.update(entry.id, {
       status: "failed",
       attempts: entry.attempts + 1,
       lastError: "conflict",
     });
+  });
+}
+
+async function reconcileGone(
+  db: RailsDatabase,
+  entry: OutboxEntry,
+): Promise<void> {
+  await db.transaction("rw", db.tables, async () => {
+    await reconcilers[entry.entity].removeLocal(db, entry.entityId);
+    await db.outbox.delete(entry.id);
   });
 }
 
@@ -72,15 +83,12 @@ async function recordRetry(
 ): Promise<void> {
   const attempts = entry.attempts + 1;
 
-  await db.transaction("rw", db.inboxItems, db.outbox, async () => {
+  await db.transaction("rw", db.tables, async () => {
     // The entry stays pending so a later drain retries it.
     await db.outbox.update(entry.id, { attempts, lastError: message });
 
     if (attempts >= MAX_SEND_ATTEMPTS) {
-      const local = await db.inboxItems.get(entry.entityId);
-      if (local && local.syncState !== "synced") {
-        await db.inboxItems.put({ ...local, syncState: "failed" });
-      }
+      await reconcilers[entry.entity].markState(db, entry.entityId, "failed");
     }
   });
 }
@@ -107,6 +115,8 @@ export async function drainOutbox(deps: SyncDeps): Promise<void> {
       await reconcileSuccess(deps.db, entry, result.item);
     } else if (result.kind === "conflict") {
       await reconcileConflict(deps.db, entry);
+    } else if (result.kind === "gone") {
+      await reconcileGone(deps.db, entry);
     } else {
       await recordRetry(deps.db, entry, result.message);
     }
@@ -121,7 +131,7 @@ export interface SyncEngine {
 
 /**
  * Drives the outbox: an initial drain, another whenever connectivity returns,
- * and an on-demand `sync` the UI calls right after a capture. Drains never
+ * and an on-demand `sync` the UI calls right after a mutation. Drains never
  * overlap; a request that arrives mid-drain queues one more pass.
  */
 export function createSyncEngine(deps: SyncDeps): SyncEngine {
