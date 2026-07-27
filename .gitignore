@@ -1,0 +1,24 @@
+# dependencies
+/node_modules
+
+# Next.js
+/.next
+/out
+
+# test and tooling output
+/coverage
+/.lighthouseci
+/bundle-analyzer
+/test-results
+/playwright-report
+*.tsbuildinfo
+
+# local environment and platform state
+.env
+.env.*
+!.env.example
+/.vercel
+
+# editor and operating-system files
+.DS_Store
+*.swp
