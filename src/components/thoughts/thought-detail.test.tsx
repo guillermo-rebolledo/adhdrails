@@ -42,6 +42,10 @@ describe("ThoughtDetail deletion", () => {
     await user.click(
       await screen.findByRole("button", { name: "Delete Thought" }),
     );
+    // Wait until the deletion is actually applied — the Undo affordance only
+    // renders after the async handler set `pendingDeletion`. Unmounting before
+    // that races the Dexie write and would skip finalization.
+    await screen.findByRole("button", { name: "Undo" });
     view.unmount();
 
     await waitFor(() =>
