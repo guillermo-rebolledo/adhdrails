@@ -36,6 +36,7 @@ function repository(overrides: Record<string, unknown> = {}) {
     update: vi.fn(),
     remove: vi.fn(),
     listActiveForAccount: vi.fn(),
+    listCollection: vi.fn(),
     ...overrides,
   } as never;
 }
@@ -320,5 +321,53 @@ describe("createTaskService.remove", () => {
     await service.remove("user_1", ID);
 
     expect(remove).toHaveBeenCalledWith("user_1", ID);
+  });
+});
+
+describe("createTaskService.listCollection", () => {
+  it("passes validated filters and a decoded cursor to the repository", async () => {
+    const listCollection = vi.fn().mockResolvedValue([
+      record(),
+      record({
+        id: "33333333-3333-4333-8333-333333333333",
+        createdAt: new Date("2026-07-26T11:00:00.000Z"),
+      }),
+    ]);
+    const service = createTaskService(repository({ listCollection }));
+
+    const result = await service.listCollection(
+      "user_1",
+      {
+        collection: "today",
+        today: "2026-07-27",
+        areaId: "44444444-4444-4444-8444-444444444444",
+        energy: "low",
+        cursor: null,
+      },
+      1,
+    );
+
+    expect(result).toMatchObject({ ok: true, nextCursor: expect.any(String) });
+    expect(listCollection).toHaveBeenCalledWith("user_1", {
+      collection: "today",
+      today: "2026-07-27",
+      areaId: "44444444-4444-4444-8444-444444444444",
+      energy: "low",
+      cursor: null,
+      limit: 2,
+    });
+  });
+
+  it("rejects invalid collection filters before reading the repository", async () => {
+    const listCollection = vi.fn();
+    const service = createTaskService(repository({ listCollection }));
+
+    const result = await service.listCollection("user_1", {
+      collection: "overdue",
+      today: "not-a-date",
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "invalid" });
+    expect(listCollection).not.toHaveBeenCalled();
   });
 });

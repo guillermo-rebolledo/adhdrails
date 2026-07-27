@@ -34,22 +34,17 @@ interface Ack {
  * Undo; once the window elapses the deletion finalizes and its 30-day
  * synchronization tombstone is written.
  */
-export function TaskList({
+export function TaskItems({
+  tasks,
+  emptyMessage = "No tasks yet. Anything you capture and turn into a task will wait here.",
   undoWindowMs = UNDO_WINDOW_MS,
 }: {
+  tasks: LocalTask[];
+  emptyMessage?: string;
   /** The delete Undo window. Overridable only to keep tests fast. */
   undoWindowMs?: number;
-} = {}) {
+}) {
   const { db, sync } = useOffline();
-  const tasks = useLiveQuery(
-    () =>
-      db.tasks
-        .where("status")
-        .equals("active")
-        .filter((task) => task.deletedAt === null)
-        .sortBy("createdAt"),
-    [db],
-  );
 
   const [completed, setCompleted] = useState<Ack | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Ack | null>(null);
@@ -97,6 +92,11 @@ export function TaskList({
     setCompleted(null);
   }
 
+  async function onRestore(task: LocalTask) {
+    await uncompleteTask(db, task.id);
+    void sync();
+  }
+
   async function finalizeNow(id: string) {
     if (deleteTimer.current) {
       clearTimeout(deleteTimer.current);
@@ -134,10 +134,6 @@ export function TaskList({
     setPendingDelete(null);
   }
 
-  if (tasks === undefined) {
-    return null;
-  }
-
   return (
     <div className="flex flex-col gap-3">
       <div aria-live="polite" className="flex flex-col gap-2">
@@ -166,10 +162,7 @@ export function TaskList({
       </div>
 
       {tasks.length === 0 ? (
-        <p className="text-muted-foreground">
-          No tasks yet. Anything you capture and turn into a task will wait
-          here.
-        </p>
+        <p className="text-muted-foreground">{emptyMessage}</p>
       ) : (
         <ul aria-label="Available tasks" className="flex flex-col gap-2">
           {tasks.map((task) => (
@@ -179,13 +172,23 @@ export function TaskList({
             >
               <span className="min-w-0 truncate">{task.title}</span>
               <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  onClick={() => onComplete(task)}
-                  size="sm"
-                  variant="secondary"
-                >
-                  Complete
-                </Button>
+                {task.status === "active" ? (
+                  <Button
+                    onClick={() => onComplete(task)}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    Complete
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => onRestore(task)}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    Restore
+                  </Button>
+                )}
                 <Link
                   className={buttonVariants({ size: "sm", variant: "ghost" })}
                   href={`/tasks/${task.id}/edit`}
@@ -207,4 +210,32 @@ export function TaskList({
       )}
     </div>
   );
+}
+
+/**
+ * The compact Available Tasks list used on Today. The full Tasks destination
+ * uses {@link TaskItems} with server-paginated collection membership instead.
+ */
+export function TaskList({
+  undoWindowMs = UNDO_WINDOW_MS,
+}: {
+  /** The delete Undo window. Overridable only to keep tests fast. */
+  undoWindowMs?: number;
+} = {}) {
+  const { db } = useOffline();
+  const tasks = useLiveQuery(
+    () =>
+      db.tasks
+        .where("status")
+        .equals("active")
+        .filter((task) => task.deletedAt === null)
+        .sortBy("createdAt"),
+    [db],
+  );
+
+  if (tasks === undefined) {
+    return null;
+  }
+
+  return <TaskItems tasks={tasks} undoWindowMs={undoWindowMs} />;
 }

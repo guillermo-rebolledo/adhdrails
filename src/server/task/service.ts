@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 import {
+  decodeTaskCursor,
+  paginateTasks,
+  TASK_COLLECTION_PAGE_SIZE,
+  taskCollectionQuerySchema,
+  type TaskCollectionQuery,
+} from "@/domain/task/collection";
+import {
   resolveCompletedAt,
   resolveCreate,
   resolveUpdate,
@@ -22,6 +29,10 @@ export type TaskUpdateResult =
   | { ok: false; reason: "conflict"; current: TaskRecord }
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "gone" };
+
+export type TaskCollectionResult =
+  | { ok: true; items: TaskRecord[]; nextCursor: string | null }
+  | { ok: false; reason: "invalid"; fieldErrors: Record<string, string[]> };
 
 /**
  * Verifies an Area referenced by a Task belongs to the same account. The Task's
@@ -149,6 +160,43 @@ export function createTaskService(
 
     listActiveForAccount(userId: string): Promise<TaskRecord[]> {
       return repository.listActiveForAccount(userId);
+    },
+
+    /**
+     * Validates and resolves one bounded collection page. A malformed cursor
+     * safely restarts at the first page; valid cursors remain stable under
+     * concurrent inserts because the repository resumes after creation time
+     * and UUID together.
+     */
+    async listCollection(
+      userId: string,
+      rawQuery: unknown,
+      pageSize: number = TASK_COLLECTION_PAGE_SIZE,
+    ): Promise<TaskCollectionResult> {
+      const parsed = taskCollectionQuerySchema.safeParse(rawQuery);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          reason: "invalid",
+          fieldErrors: z.flattenError(parsed.error).fieldErrors,
+        };
+      }
+
+      const query: TaskCollectionQuery = parsed.data;
+      const rows = await repository.listCollection(userId, {
+        collection: query.collection,
+        today: query.today,
+        areaId: query.areaId,
+        energy: query.energy,
+        cursor: query.cursor ? decodeTaskCursor(query.cursor) : null,
+        limit: pageSize + 1,
+      });
+      const page = paginateTasks(rows, pageSize, (row) => ({
+        createdAt: row.createdAt.toISOString(),
+        id: row.id,
+      }));
+
+      return { ok: true, ...page };
     },
   };
 }

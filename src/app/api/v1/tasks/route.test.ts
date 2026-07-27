@@ -35,6 +35,9 @@ function service(overrides: Record<string, unknown> = {}) {
     update: vi.fn(),
     remove: vi.fn(),
     listActiveForAccount: vi.fn().mockResolvedValue([]),
+    listCollection: vi
+      .fn()
+      .mockResolvedValue({ ok: true, items: [], nextCursor: null }),
     ...overrides,
   };
 }
@@ -102,11 +105,51 @@ describe("POST /api/v1/tasks", () => {
 });
 
 describe("GET /api/v1/tasks", () => {
-  it("lists the signed-in account's active tasks", async () => {
-    const listActiveForAccount = vi.fn().mockResolvedValue([record()]);
+  it("lists a filtered cursor page for the signed-in account", async () => {
+    const listCollection = vi.fn().mockResolvedValue({
+      ok: true,
+      items: [record()],
+      nextCursor: "next-page",
+    });
     const { GET } = createTasksRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
-      getService: () => service({ listActiveForAccount }) as never,
+      getService: () => service({ listCollection }) as never,
+      createCorrelationId: () => "cor_1",
+    });
+
+    const response = await GET(
+      new Request(
+        "https://rails.example/api/v1/tasks?collection=today&today=2026-07-27&energy=low&areaId=44444444-4444-4444-8444-444444444444&cursor=abc",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listCollection).toHaveBeenCalledWith(
+      "user_1",
+      {
+        collection: "today",
+        today: "2026-07-27",
+        energy: "low",
+        areaId: "44444444-4444-4444-8444-444444444444",
+        cursor: "abc",
+      },
+      expect.any(Number),
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ id: ID, title: "Write the report" }],
+      nextCursor: "next-page",
+    });
+  });
+
+  it("keeps the no-parameter endpoint compatible as the Anytime view", async () => {
+    const listCollection = vi.fn().mockResolvedValue({
+      ok: true,
+      items: [record()],
+      nextCursor: null,
+    });
+    const { GET } = createTasksRouteHandlers({
+      getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
+      getService: () => service({ listCollection }) as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -115,9 +158,31 @@ describe("GET /api/v1/tasks", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(listActiveForAccount).toHaveBeenCalledWith("user_1");
-    await expect(response.json()).resolves.toMatchObject({
-      items: [{ id: ID, title: "Write the report" }],
+    expect(listCollection).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({ collection: "anytime" }),
+      expect.any(Number),
+    );
+  });
+
+  it("returns 422 for invalid filters", async () => {
+    const { GET } = createTasksRouteHandlers({
+      getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
+      getService: () =>
+        service({
+          listCollection: vi.fn().mockResolvedValue({
+            ok: false,
+            reason: "invalid",
+            fieldErrors: { collection: ["Invalid option."] },
+          }),
+        }) as never,
+      createCorrelationId: () => "cor_1",
     });
+
+    const response = await GET(
+      new Request("https://rails.example/api/v1/tasks?collection=overdue"),
+    );
+
+    expect(response.status).toBe(422);
   });
 });

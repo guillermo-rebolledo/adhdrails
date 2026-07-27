@@ -215,6 +215,20 @@ export const task = pgTable(
       table.scheduledDate,
       table.id,
     ),
+    index("task_account_status_area_created_idx").on(
+      table.userId,
+      table.status,
+      table.areaId,
+      table.createdAt,
+      table.id,
+    ),
+    index("task_account_status_energy_created_idx").on(
+      table.userId,
+      table.status,
+      table.energy,
+      table.createdAt,
+      table.id,
+    ),
     index("task_area_idx").on(table.areaId),
   ],
 );
