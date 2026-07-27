@@ -1,10 +1,12 @@
 import {
   boolean,
+  date,
   index,
   integer,
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -161,6 +163,78 @@ export const task = pgTable(
  * retention window.
  */
 export const taskTombstone = pgTable("task_tombstone", {
+  id: uuid("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * An Event owned by one account. Local timed Events are created in Rails without
+ * Google Calendar access; imported Events are mirrored from Google, which stays
+ * authoritative for them. Storage mirrors Google-compatible semantics so
+ * synchronization needs no lossy translation: exact `start_at`/`end_at` instants
+ * with their IANA time zones, an `is_all_day` flag with `date`-only bounds for
+ * imported all-day Events, recurrence identity (`recurring_event_id`,
+ * `recurrence` RRULE lines), a constrained `status`, and provider identifiers.
+ * `origin` distinguishes local from synchronized Events. The primary key is the
+ * client-generated UUID, so an offline record keeps its identity once it
+ * synchronizes; `version` and `idempotency_key` support safe retries and
+ * reviewable conflicts. The uniqueness constraint on
+ * (`google_calendar_id`, `google_event_id`) prevents duplicate mirrors.
+ */
+export const event = pgTable(
+  "event",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    startTimeZone: text("start_time_zone").notNull(),
+    endTimeZone: text("end_time_zone").notNull(),
+    isAllDay: boolean("is_all_day").notNull().default(false),
+    allDayStartDate: date("all_day_start_date"),
+    allDayEndDate: date("all_day_end_date"),
+    recurringEventId: text("recurring_event_id"),
+    recurrence: text("recurrence").array(),
+    status: text("status").notNull().default("confirmed"),
+    origin: text("origin").notNull().default("local"),
+    googleCalendarId: text("google_calendar_id"),
+    googleEventId: text("google_event_id"),
+    version: integer("version").notNull().default(1),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Drives the weekly agenda and the cursor-paged Later list: scan an
+    // account's Events in start order with a stable (start_at, id) tie-break.
+    index("event_account_start_idx").on(table.userId, table.startAt, table.id),
+    // One mirror per Google (calendar, event) pair prevents duplication.
+    uniqueIndex("event_google_identity_idx").on(
+      table.googleCalendarId,
+      table.googleEventId,
+    ),
+  ],
+);
+
+/**
+ * An Event deletion tombstone. It marks that an Event id was deliberately
+ * deleted so another client's queued create or update cannot resurrect it.
+ * Tombstones are retained for 30 days and then purged; `deleted_at` drives that
+ * retention window.
+ */
+export const eventTombstone = pgTable("event_tombstone", {
   id: uuid("id").primaryKey(),
   userId: text("user_id")
     .notNull()

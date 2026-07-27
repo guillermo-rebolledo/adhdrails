@@ -13,10 +13,6 @@ const destinations = {
     title: "Tasks",
     description: "Flexible work stays visible and easy to revisit.",
   },
-  calendar: {
-    title: "Calendar",
-    description: "Your weekly agenda will bring commitments into view.",
-  },
   thoughts: {
     title: "Thoughts",
     description: "Lightweight references will have a calm home here.",

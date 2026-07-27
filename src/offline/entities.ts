@@ -1,3 +1,4 @@
+import type { EventOrigin, EventStatus } from "@/domain/event/event";
 import type { TaskStatus } from "@/domain/task/task";
 
 import type { RailsDatabase, SyncEntity, SyncState } from "./db";
@@ -78,7 +79,39 @@ const taskReconciler: EntityReconciler = {
   },
 };
 
+const eventReconciler: EntityReconciler = {
+  async applyServer(db, entityId, server) {
+    const local = await db.events.get(entityId);
+    if (local) {
+      await db.events.put({
+        ...local,
+        title: server.title as string,
+        startAt: server.startAt as string,
+        endAt: server.endAt as string,
+        startTimeZone: server.startTimeZone as string,
+        endTimeZone: server.endTimeZone as string,
+        isAllDay: server.isAllDay as boolean,
+        recurringEventId: (server.recurringEventId as string | null) ?? null,
+        status: server.status as EventStatus,
+        origin: server.origin as EventOrigin,
+        version: server.version as number,
+        syncState: "synced",
+      });
+    }
+  },
+  async removeLocal(db, entityId) {
+    await db.events.delete(entityId);
+  },
+  async markState(db, entityId, state) {
+    const local = await db.events.get(entityId);
+    if (local && local.syncState !== "synced") {
+      await db.events.put({ ...local, syncState: state });
+    }
+  },
+};
+
 export const reconcilers: Record<SyncEntity, EntityReconciler> = {
   inbox_item: inboxReconciler,
   task: taskReconciler,
+  event: eventReconciler,
 };

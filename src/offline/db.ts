@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
 
+import type { EventOrigin, EventStatus } from "@/domain/event/event";
 import type { TaskStatus } from "@/domain/task/task";
 
 /**
@@ -39,8 +40,34 @@ export interface LocalTask {
   syncState: SyncState;
 }
 
+/**
+ * An Event as the client holds it. Start and end are exact instants with their
+ * IANA time zones, mirroring Google-compatible semantics; `isAllDay`,
+ * recurrence identity, and `status` are carried so an imported Event and a local
+ * Event share one shape even though local creation is timed-only. `origin`
+ * distinguishes a synchronized Google Event from a local one, and together with
+ * `syncState` drives the agenda's stale/pending/synchronized cues. `deletedAt`
+ * marks an optimistic deletion during its 10-second Undo window.
+ */
+export interface LocalEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  startTimeZone: string;
+  endTimeZone: string;
+  isAllDay: boolean;
+  recurringEventId: string | null;
+  status: EventStatus;
+  origin: EventOrigin;
+  version: number;
+  createdAt: string;
+  deletedAt: string | null;
+  syncState: SyncState;
+}
+
 /** Which durable entity a table (and its outbox entries) belongs to. */
-export type SyncEntity = "inbox_item" | "task";
+export type SyncEntity = "inbox_item" | "task" | "event";
 
 export type OutboxOperation = "create" | "update" | "delete";
 export type OutboxStatus = "pending" | "failed";
@@ -67,6 +94,7 @@ export interface OutboxEntry {
 export class RailsDatabase extends Dexie {
   inboxItems!: Table<LocalInboxItem, string>;
   tasks!: Table<LocalTask, string>;
+  events!: Table<LocalEvent, string>;
   outbox!: Table<OutboxEntry, string>;
 
   constructor(name = "rails") {
@@ -78,6 +106,14 @@ export class RailsDatabase extends Dexie {
     this.version(2).stores({
       inboxItems: "id, createdAt, syncState",
       tasks: "id, status, createdAt, deletedAt, syncState",
+      outbox: "id, entity, status, createdAt",
+    });
+    // `startAt` is indexed so the weekly agenda can range-scan the current week
+    // directly; `deletedAt` supports the optimistic-deletion Undo window.
+    this.version(3).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
       outbox: "id, entity, status, createdAt",
     });
   }
