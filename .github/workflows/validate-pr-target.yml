@@ -1,0 +1,31 @@
+name: Validate PR target
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate PR target
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Enforce staging-first workflow
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ "$BASE_BRANCH" == "main" && "$HEAD_BRANCH" != "staging" ]]; then
+            echo "::error::Only staging may open a pull request into main."
+            exit 1
+          fi
+
+          if [[ "$BASE_BRANCH" != "main" && "$BASE_BRANCH" != "staging" ]]; then
+            echo "::error::Pull requests must target staging or main."
+            exit 1
+          fi
+
+          echo "Valid flow: $HEAD_BRANCH → $BASE_BRANCH"
