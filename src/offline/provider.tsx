@@ -12,6 +12,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
+import { createEventSend } from "./event-send";
 import { createInboxSend } from "./inbox-send";
 import { createThoughtSend } from "./outbox-send";
 import { createTaskSend } from "./task-send";
@@ -28,6 +29,7 @@ function createSend(): (entry: OutboxEntry) => Promise<SendResult> {
     inbox_item: createInboxSend(),
     task: createTaskSend(),
     thought: createThoughtSend(),
+    event: createEventSend(),
   } as const;
   return (entry) => senders[entry.entity](entry);
 }

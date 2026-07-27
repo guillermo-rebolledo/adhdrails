@@ -36,6 +36,13 @@
       "when": 1785131419707,
       "tag": "0004_kind_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785134377335,
+      "tag": "0005_jazzy_exodus",
+      "breakpoints": true
     }
   ]
 }
