@@ -7,6 +7,7 @@ import {
   hasCompletedOnboarding,
   resolveProtectedRouteRedirect,
 } from "@/domain/account/onboarding";
+import { OfflineProvider } from "@/offline/provider";
 import { getAccountSummary } from "@/server/auth/session";
 
 /**
@@ -27,5 +28,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect(redirectTo);
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <OfflineProvider>
+      <AppShell>{children}</AppShell>
+    </OfflineProvider>
+  );
 }

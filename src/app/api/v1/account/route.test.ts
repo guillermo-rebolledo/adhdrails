@@ -51,12 +51,10 @@ describe("GET /api/v1/account", () => {
   });
 
   it("returns the account profile scoped to the signed-in user", async () => {
-    const getProfile = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        profile: profile(),
-      } satisfies AccountResult);
+    const getProfile = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: profile(),
+    } satisfies AccountResult);
     const { GET } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
       getService: () => service({ getProfile }) as never,
@@ -77,12 +75,10 @@ describe("GET /api/v1/account", () => {
   });
 
   it("returns 404 when the scoped account no longer exists", async () => {
-    const getProfile = vi
-      .fn()
-      .mockResolvedValue({
-        ok: false,
-        reason: "not_found",
-      } satisfies AccountResult);
+    const getProfile = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: "not_found",
+    } satisfies AccountResult);
     const { GET } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
       getService: () => service({ getProfile }) as never,
