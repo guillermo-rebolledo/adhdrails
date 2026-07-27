@@ -1,4 +1,8 @@
+import Link from "next/link";
+
 import { QuickCapture } from "@/components/inbox/quick-capture";
+import { TaskList } from "@/components/task/task-list";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function TodayPage() {
   return (
@@ -15,6 +19,18 @@ export default function TodayPage() {
           Captures are saved to your Inbox, online or off, and sync
           automatically.
         </p>
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-medium">Available tasks</h2>
+          <Link
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            href="/tasks/new"
+          >
+            New task
+          </Link>
+        </div>
+        <TaskList />
       </div>
     </section>
   );

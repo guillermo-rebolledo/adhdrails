@@ -1,5 +1,7 @@
 import Dexie, { type Table } from "dexie";
 
+import type { TaskStatus } from "@/domain/task/task";
+
 /**
  * Dexie/IndexedDB owns the durable local replica for offline-capable domain
  * entities and the mutation outbox. `useLiveQuery` exposes optimistic changes
@@ -20,7 +22,27 @@ export interface LocalInboxItem {
   syncState: SyncState;
 }
 
-export type OutboxOperation = "create";
+/**
+ * A Task as the client holds it. `version` tracks the last server-confirmed
+ * version so an update can carry a correct base version. `deletedAt` marks an
+ * optimistic deletion during its 10-second Undo window; the row is only removed
+ * from the replica once the deletion finalizes and its outbox entry is queued.
+ */
+export interface LocalTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  completedAt: string | null;
+  version: number;
+  createdAt: string;
+  deletedAt: string | null;
+  syncState: SyncState;
+}
+
+/** Which durable entity a table (and its outbox entries) belongs to. */
+export type SyncEntity = "inbox_item" | "task";
+
+export type OutboxOperation = "create" | "update" | "delete";
 export type OutboxStatus = "pending" | "failed";
 
 /**
@@ -30,7 +52,7 @@ export type OutboxStatus = "pending" | "failed";
  */
 export interface OutboxEntry {
   id: string;
-  entity: "inbox_item";
+  entity: SyncEntity;
   operation: OutboxOperation;
   entityId: string;
   idempotencyKey: string;
@@ -44,12 +66,18 @@ export interface OutboxEntry {
 
 export class RailsDatabase extends Dexie {
   inboxItems!: Table<LocalInboxItem, string>;
+  tasks!: Table<LocalTask, string>;
   outbox!: Table<OutboxEntry, string>;
 
   constructor(name = "rails") {
     super(name);
     this.version(1).stores({
       inboxItems: "id, createdAt, syncState",
+      outbox: "id, entity, status, createdAt",
+    });
+    this.version(2).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
       outbox: "id, entity, status, createdAt",
     });
   }

@@ -118,6 +118,58 @@ export const inboxItem = pgTable(
   ],
 );
 
+/**
+ * A Task owned by one account. The primary key is the client-generated UUID, so
+ * an offline record keeps its identity once it synchronizes. `version` and
+ * `idempotencyKey` support safe retries and reviewable conflicts for the
+ * offline mutation tracer; `status` is a constrained `text` union rather than a
+ * PostgreSQL enum. Completion records `completedAt` but never a punitive state.
+ */
+export const task = pgTable(
+  "task",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("active"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    version: integer("version").notNull().default(1),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_account_status_created_idx").on(
+      table.userId,
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
+/**
+ * An app-owned deletion tombstone. It marks that a Task id was deliberately
+ * deleted so another client's queued create or update cannot resurrect it.
+ * Tombstones are retained for 30 days and then purged; `deletedAt` drives that
+ * retention window.
+ */
+export const taskTombstone = pgTable("task_tombstone", {
+  id: uuid("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

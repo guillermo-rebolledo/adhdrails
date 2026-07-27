@@ -11,9 +11,23 @@ import {
 } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { getClientDatabase, type RailsDatabase } from "./db";
+import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
 import { createInboxSend } from "./inbox-send";
-import { createSyncEngine, type SyncEngine } from "./sync";
+import { createTaskSend } from "./task-send";
+import { createSyncEngine, type SendResult, type SyncEngine } from "./sync";
+
+/**
+ * Routes an outbox entry to the delivery adapter for its entity. The sync
+ * engine stays entity-agnostic; this map is the single place that knows which
+ * transport each entity uses.
+ */
+function createSend(): (entry: OutboxEntry) => Promise<SendResult> {
+  const senders = {
+    inbox_item: createInboxSend(),
+    task: createTaskSend(),
+  } as const;
+  return (entry) => senders[entry.entity](entry);
+}
 
 interface OfflineContextValue {
   db: RailsDatabase;
@@ -45,7 +59,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const engine = createSyncEngine({
       db,
-      send: createInboxSend(),
+      send: createSend(),
       isOnline: () => navigator.onLine,
     });
     engineRef.current = engine;

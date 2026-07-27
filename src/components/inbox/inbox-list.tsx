@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { buttonVariants } from "@/components/ui/button";
 import type { LocalInboxItem, SyncState } from "@/offline/db";
 import { useOffline } from "@/offline/provider";
 
@@ -51,12 +53,20 @@ function InboxRow({ item }: { item: LocalInboxItem }) {
   return (
     <li className="flex items-center justify-between gap-4 rounded-lg border bg-card p-3 text-card-foreground">
       <span className="min-w-0 truncate">{item.title}</span>
-      <span
-        className="shrink-0 text-xs text-muted-foreground"
-        data-sync-state={item.syncState}
-      >
-        {syncStateCopy[item.syncState]}
-      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <Link
+          className={buttonVariants({ size: "sm", variant: "ghost" })}
+          href={`/tasks/new?title=${encodeURIComponent(item.title)}`}
+        >
+          Turn into task
+        </Link>
+        <span
+          className="text-xs text-muted-foreground"
+          data-sync-state={item.syncState}
+        >
+          {syncStateCopy[item.syncState]}
+        </span>
+      </div>
     </li>
   );
 }
