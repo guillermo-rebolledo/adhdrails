@@ -1,10 +1,15 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 
 import { QuickCapture } from "@/components/inbox/quick-capture";
 import { TaskList } from "@/components/task/task-list";
 import { buttonVariants } from "@/components/ui/button";
+import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
+import { getAccountSummary } from "@/server/auth/session";
 
-export default function TodayPage() {
+export default async function TodayPage() {
+  const account = await getAccountSummary(await headers());
+
   return (
     <section className="mx-auto flex max-w-2xl flex-col gap-6">
       <div className="flex flex-col gap-2">
@@ -14,7 +19,10 @@ export default function TodayPage() {
         </p>
       </div>
       <div className="rounded-xl border bg-card p-6 text-card-foreground">
-        <QuickCapture />
+        <QuickCapture
+          locale={account?.locale ?? DEFAULT_LOCALE}
+          timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
+        />
         <p className="mt-3 text-xs text-muted-foreground">
           Captures are saved to your Inbox, online or off, and sync
           automatically.

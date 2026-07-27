@@ -13,8 +13,12 @@ test("captures online and shows the item saved in the Inbox", async ({
     .fill("Read the release notes");
   await page.getByRole("button", { name: "Capture" }).click();
 
-  // Accessible, local acknowledgement of the capture.
-  await expect(page.getByRole("status")).toHaveText("Saved to Inbox.");
+  // Accessible, local acknowledgement of the capture. Plain text has no
+  // schedule, so the parser says so explicitly and offers Add details.
+  await expect(page.getByRole("status")).toContainText(
+    "Saved to Inbox · No schedule detected.",
+  );
+  await expect(page.getByRole("link", { name: "Add details" })).toBeVisible();
 
   await page.goto("/inbox");
   await expect(page.getByText("Read the release notes")).toBeVisible();
@@ -41,7 +45,9 @@ test("captures while offline and synchronizes on reconnect", async ({
   await page.getByRole("button", { name: "Capture" }).click();
 
   // The capture is acknowledged locally even with no connection.
-  await expect(page.getByRole("status")).toHaveText("Saved to Inbox.");
+  await expect(page.getByRole("status")).toContainText(
+    "Saved to Inbox · No schedule detected.",
+  );
 
   await context.setOffline(false);
 
@@ -57,6 +63,33 @@ test("captures while offline and synchronizes on reconnect", async ({
   await page.goto("/inbox");
   await expect(page.getByText("Offline idea worth keeping")).toBeVisible();
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+});
+
+test("detects a schedule, shows chips, and confirms it as an event", async ({
+  page,
+}) => {
+  await signIn(page, { onboarded: true });
+  await page.goto("/today");
+
+  await page
+    .getByRole("textbox", { name: "Quick capture" })
+    .fill("Team sync tomorrow at 10am");
+
+  // Detected values appear as editable chips before anything is classified.
+  const chips = page.getByRole("list", { name: "Detected details" });
+  await expect(chips).toBeVisible();
+  await expect(chips).toContainText("10");
+
+  // Confirming is the classification step: it creates a local Event carrying
+  // the detected time through the offline path.
+  await page.getByRole("button", { name: "Confirm as event" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Added to your calendar.",
+  );
+  // The field resets, ready for the next capture.
+  await expect(
+    page.getByRole("textbox", { name: "Quick capture" }),
+  ).toHaveValue("");
 });
 
 test("delivers a duplicate capture idempotently", async ({ page }) => {
