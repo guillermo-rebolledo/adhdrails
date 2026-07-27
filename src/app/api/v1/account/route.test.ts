@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AccountProfile } from "@/server/account/repository";
+import type { AccountResult } from "@/server/account/service";
 
 import { createAccountRouteHandlers } from "./route";
 
@@ -16,7 +17,7 @@ function profile(overrides: Partial<AccountProfile> = {}): AccountProfile {
   };
 }
 
-function repository(overrides: Record<string, unknown> = {}) {
+function service(overrides: Record<string, unknown> = {}) {
   return {
     getProfile: vi.fn(),
     updateProfile: vi.fn(),
@@ -25,7 +26,7 @@ function repository(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const request = (body?: unknown) =>
+const patch = (body?: unknown) =>
   new Request("https://rails.example/api/v1/account", {
     method: "PATCH",
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -35,7 +36,7 @@ describe("GET /api/v1/account", () => {
   it("returns 401 for an unauthenticated request", async () => {
     const { GET } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue(null),
-      getRepository: () => repository() as never,
+      getService: () => service() as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -50,10 +51,15 @@ describe("GET /api/v1/account", () => {
   });
 
   it("returns the account profile scoped to the signed-in user", async () => {
-    const getProfile = vi.fn().mockResolvedValue(profile());
+    const getProfile = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        profile: profile(),
+      } satisfies AccountResult);
     const { GET } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
-      getRepository: () => repository({ getProfile }) as never,
+      getService: () => service({ getProfile }) as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -69,40 +75,65 @@ describe("GET /api/v1/account", () => {
       onboardingCompleted: true,
     });
   });
+
+  it("returns 404 when the scoped account no longer exists", async () => {
+    const getProfile = vi
+      .fn()
+      .mockResolvedValue({
+        ok: false,
+        reason: "not_found",
+      } satisfies AccountResult);
+    const { GET } = createAccountRouteHandlers({
+      getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
+      getService: () => service({ getProfile }) as never,
+      createCorrelationId: () => "cor_1",
+    });
+
+    const response = await GET(
+      new Request("https://rails.example/api/v1/account"),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ code: "not_found" });
+  });
 });
 
 describe("PATCH /api/v1/account", () => {
-  it("rejects an invalid time zone with a validation problem", async () => {
-    const updateProfile = vi.fn();
+  it("rejects an invalid profile with a validation problem", async () => {
+    const updateProfile = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: "invalid",
+      fieldErrors: { timezone: ["Unknown time zone."] },
+    } satisfies AccountResult);
     const { PATCH } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
-      getRepository: () => repository({ updateProfile }) as never,
+      getService: () => service({ updateProfile }) as never,
       createCorrelationId: () => "cor_1",
     });
 
     const response = await PATCH(
-      request({ timezone: "Nowhere/Void", locale: "en-US" }),
+      patch({ timezone: "Nowhere/Void", locale: "en-US" }),
     );
 
     expect(response.status).toBe(422);
-    expect(updateProfile).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       code: "validation_failed",
     });
   });
 
   it("saves a valid profile update", async () => {
-    const updateProfile = vi
-      .fn()
-      .mockResolvedValue(profile({ timezone: "Europe/Madrid" }));
+    const updateProfile = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: profile({ timezone: "Europe/Madrid" }),
+    } satisfies AccountResult);
     const { PATCH } = createAccountRouteHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
-      getRepository: () => repository({ updateProfile }) as never,
+      getService: () => service({ updateProfile }) as never,
       createCorrelationId: () => "cor_1",
     });
 
     const response = await PATCH(
-      request({ timezone: "Europe/Madrid", locale: "en-GB" }),
+      patch({ timezone: "Europe/Madrid", locale: "en-GB" }),
     );
 
     expect(response.status).toBe(200);

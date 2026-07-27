@@ -1,35 +1,29 @@
-import { z } from "zod";
-
-import {
-  accountProfileSchema,
-  hasCompletedOnboarding,
-} from "@/domain/account/onboarding";
+import { hasCompletedOnboarding } from "@/domain/account/onboarding";
 import { getAccountSummary } from "@/server/auth/session";
+import { createAccountRepository } from "@/server/account/repository";
 import {
-  type AccountRepository,
-  createAccountRepository,
-} from "@/server/account/repository";
+  type AccountService,
+  createAccountService,
+} from "@/server/account/service";
+import {
+  accountFailureResponse,
+  accountJsonResponse,
+} from "@/server/account/http";
 import { getDatabase } from "@/server/db/connection";
-import {
-  problemResponse,
-  unauthorizedProblem,
-  validationProblem,
-} from "@/server/http/problem";
-import {
-  CORRELATION_ID_HEADER,
-  correlationIdFrom,
-} from "@/server/observability/correlation-id";
+import { unauthorizedProblem } from "@/server/http/problem";
+import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
 
 export interface OnboardingRouteDependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  getRepository: () => AccountRepository;
+  getService: () => AccountService;
   createCorrelationId: (request: Request) => string;
 }
 
 const dependencies: OnboardingRouteDependencies = {
   getAccountSummary,
-  getRepository: () => createAccountRepository(getDatabase()),
+  getService: () =>
+    createAccountService(createAccountRepository(getDatabase())),
   createCorrelationId: correlationIdFrom,
 };
 
@@ -51,28 +45,12 @@ export function createOnboardingRouteHandler(
       payload = undefined;
     }
 
-    const parsed = accountProfileSchema.safeParse(payload);
-    if (!parsed.success) {
-      return validationProblem(
-        correlationId,
-        z.flattenError(parsed.error).fieldErrors,
-      );
-    }
+    const result = await deps
+      .getService()
+      .completeOnboarding(account.userId, payload);
 
-    const profile = await deps
-      .getRepository()
-      .completeOnboarding(account.userId, parsed.data);
-
-    if (!profile) {
-      return problemResponse({
-        type: "https://rails.app/problems/account-not-found",
-        title: "Account not found",
-        status: 404,
-        code: "not_found",
-        detail: "The signed-in account no longer exists.",
-        correlationId,
-        retryable: false,
-      });
+    if (!result.ok) {
+      return accountFailureResponse(result, correlationId);
     }
 
     logOperationalEvent({
@@ -81,19 +59,14 @@ export function createOnboardingRouteHandler(
       outcome: "success",
     });
 
-    return Response.json(
+    return accountJsonResponse(
       {
-        userId: profile.userId,
-        timezone: profile.timezone,
-        locale: profile.locale,
-        onboardingCompleted: hasCompletedOnboarding(profile),
+        userId: result.profile.userId,
+        timezone: result.profile.timezone,
+        locale: result.profile.locale,
+        onboardingCompleted: hasCompletedOnboarding(result.profile),
       },
-      {
-        headers: {
-          [CORRELATION_ID_HEADER]: correlationId,
-          "cache-control": "no-store",
-        },
-      },
+      correlationId,
     );
   };
 }

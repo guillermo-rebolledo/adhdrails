@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { AccountResult } from "@/server/account/service";
+
 import { createOnboardingRouteHandler } from "./route";
 
 const request = (body?: unknown) =>
@@ -12,7 +14,7 @@ describe("POST /api/v1/account/onboarding", () => {
   it("requires an authenticated account", async () => {
     const POST = createOnboardingRouteHandler({
       getAccountSummary: vi.fn().mockResolvedValue(null),
-      getRepository: () => ({ completeOnboarding: vi.fn() }) as never,
+      getService: () => ({ completeOnboarding: vi.fn() }) as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -21,18 +23,38 @@ describe("POST /api/v1/account/onboarding", () => {
     expect(response.status).toBe(401);
   });
 
-  it("completes onboarding for the scoped account", async () => {
+  it("surfaces validation failures from the service", async () => {
     const completeOnboarding = vi.fn().mockResolvedValue({
-      userId: "user_1",
-      email: "p@example.com",
-      name: "P",
-      timezone: "America/Chicago",
-      locale: "en-US",
-      onboardingCompletedAt: new Date(),
-    });
+      ok: false,
+      reason: "invalid",
+      fieldErrors: { locale: ["Unknown locale."] },
+    } satisfies AccountResult);
     const POST = createOnboardingRouteHandler({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
-      getRepository: () => ({ completeOnboarding }) as never,
+      getService: () => ({ completeOnboarding }) as never,
+      createCorrelationId: () => "cor_1",
+    });
+
+    const response = await POST(request({ timezone: "UTC", locale: "@@" }));
+
+    expect(response.status).toBe(422);
+  });
+
+  it("completes onboarding for the scoped account", async () => {
+    const completeOnboarding = vi.fn().mockResolvedValue({
+      ok: true,
+      profile: {
+        userId: "user_1",
+        email: "p@example.com",
+        name: "P",
+        timezone: "America/Chicago",
+        locale: "en-US",
+        onboardingCompletedAt: new Date(),
+      },
+    } satisfies AccountResult);
+    const POST = createOnboardingRouteHandler({
+      getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
+      getService: () => ({ completeOnboarding }) as never,
       createCorrelationId: () => "cor_1",
     });
 

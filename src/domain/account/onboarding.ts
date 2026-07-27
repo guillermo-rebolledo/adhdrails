@@ -116,3 +116,21 @@ export const accountProfileSchema = z.object({
 });
 
 export type AccountProfileInput = z.infer<typeof accountProfileSchema>;
+
+/**
+ * Response contract for the account profile returned by `/api/v1/account`.
+ * Shared by the route serializer, the UI, and tests.
+ */
+export const accountProfileResponseSchema = z.object({
+  userId: z.string(),
+  email: z.string(),
+  name: z.string(),
+  timezone: z.string(),
+  locale: z.string(),
+  onboardingCompleted: z.boolean(),
+  onboardingCompletedAt: z.string().nullable(),
+});
+
+export type AccountProfileResponse = z.infer<
+  typeof accountProfileResponseSchema
+>;

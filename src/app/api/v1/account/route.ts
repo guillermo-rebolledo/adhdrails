@@ -1,70 +1,38 @@
-import { z } from "zod";
-
-import {
-  accountProfileSchema,
-  hasCompletedOnboarding,
-} from "@/domain/account/onboarding";
 import { getAccountSummary } from "@/server/auth/session";
+import { createAccountRepository } from "@/server/account/repository";
 import {
-  type AccountProfile,
-  type AccountRepository,
-  createAccountRepository,
-} from "@/server/account/repository";
+  type AccountService,
+  createAccountService,
+} from "@/server/account/service";
+import {
+  accountFailureResponse,
+  accountJsonResponse,
+  serializeAccountProfile,
+} from "@/server/account/http";
 import { getDatabase } from "@/server/db/connection";
-import {
-  problemResponse,
-  unauthorizedProblem,
-  validationProblem,
-} from "@/server/http/problem";
-import {
-  CORRELATION_ID_HEADER,
-  correlationIdFrom,
-} from "@/server/observability/correlation-id";
+import { unauthorizedProblem } from "@/server/http/problem";
+import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
 
 export interface AccountRouteDependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  getRepository: () => AccountRepository;
+  getService: () => AccountService;
   createCorrelationId: (request: Request) => string;
 }
 
 const dependencies: AccountRouteDependencies = {
   getAccountSummary,
-  getRepository: () => createAccountRepository(getDatabase()),
+  getService: () =>
+    createAccountService(createAccountRepository(getDatabase())),
   createCorrelationId: correlationIdFrom,
 };
 
-function serializeProfile(profile: AccountProfile) {
-  return {
-    userId: profile.userId,
-    email: profile.email,
-    name: profile.name,
-    timezone: profile.timezone,
-    locale: profile.locale,
-    onboardingCompleted: hasCompletedOnboarding(profile),
-    onboardingCompletedAt: profile.onboardingCompletedAt?.toISOString() ?? null,
-  };
-}
-
-function jsonResponse(body: unknown, correlationId: string): Response {
-  return Response.json(body, {
-    headers: {
-      [CORRELATION_ID_HEADER]: correlationId,
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function notFoundProblem(correlationId: string): Response {
-  return problemResponse({
-    type: "https://rails.app/problems/account-not-found",
-    title: "Account not found",
-    status: 404,
-    code: "not_found",
-    detail: "The signed-in account no longer exists.",
-    correlationId,
-    retryable: false,
-  });
+async function readPayload(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch {
+    return undefined;
+  }
 }
 
 export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
@@ -76,13 +44,14 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
       return unauthorizedProblem(correlationId);
     }
 
-    const profile = await deps.getRepository().getProfile(account.userId);
+    const result = await deps.getService().getProfile(account.userId);
 
-    if (!profile) {
-      return notFoundProblem(correlationId);
-    }
-
-    return jsonResponse(serializeProfile(profile), correlationId);
+    return result.ok
+      ? accountJsonResponse(
+          serializeAccountProfile(result.profile),
+          correlationId,
+        )
+      : accountFailureResponse(result, correlationId);
   }
 
   async function PATCH(request: Request): Promise<Response> {
@@ -93,27 +62,12 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
       return unauthorizedProblem(correlationId);
     }
 
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      payload = undefined;
-    }
+    const result = await deps
+      .getService()
+      .updateProfile(account.userId, await readPayload(request));
 
-    const parsed = accountProfileSchema.safeParse(payload);
-    if (!parsed.success) {
-      return validationProblem(
-        correlationId,
-        z.flattenError(parsed.error).fieldErrors,
-      );
-    }
-
-    const profile = await deps
-      .getRepository()
-      .updateProfile(account.userId, parsed.data);
-
-    if (!profile) {
-      return notFoundProblem(correlationId);
+    if (!result.ok) {
+      return accountFailureResponse(result, correlationId);
     }
 
     logOperationalEvent({
@@ -122,7 +76,10 @@ export function createAccountRouteHandlers(deps: AccountRouteDependencies) {
       outcome: "success",
     });
 
-    return jsonResponse(serializeProfile(profile), correlationId);
+    return accountJsonResponse(
+      serializeAccountProfile(result.profile),
+      correlationId,
+    );
   }
 
   return { GET, PATCH };

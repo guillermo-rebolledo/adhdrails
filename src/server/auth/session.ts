@@ -1,3 +1,5 @@
+import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
+
 import { getAuth } from "./index";
 
 export interface AccountSummary {
@@ -29,8 +31,8 @@ export async function getAccountSummary(
     userId: user.id,
     email: user.email,
     name: user.name,
-    timezone: user.timezone ?? "UTC",
-    locale: user.locale ?? "en-US",
+    timezone: user.timezone ?? DEFAULT_TIMEZONE,
+    locale: user.locale ?? DEFAULT_LOCALE,
     onboardingCompletedAt: user.onboardingCompletedAt ?? null,
   };
 }

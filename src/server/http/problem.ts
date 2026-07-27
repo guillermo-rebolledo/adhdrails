@@ -56,3 +56,15 @@ export function validationProblem(
     fieldErrors,
   });
 }
+
+export function accountNotFoundProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/account-not-found",
+    title: "Account not found",
+    status: 404,
+    code: "not_found",
+    detail: "The signed-in account no longer exists.",
+    correlationId,
+    retryable: false,
+  });
+}
