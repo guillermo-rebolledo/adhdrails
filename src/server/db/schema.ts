@@ -100,6 +100,7 @@ export const inboxItem = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     seenAt: timestamp("seen_at", { withTimezone: true }),
+    classifiedAt: timestamp("classified_at", { withTimezone: true }),
     version: integer("version").notNull().default(1),
     idempotencyKey: uuid("idempotency_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -169,6 +170,39 @@ export const taskTombstone = pgTable("task_tombstone", {
     .notNull()
     .defaultNow(),
 });
+
+export const thought = pgTable(
+  "thought",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    sourceInboxItemId: uuid("source_inbox_item_id").references(
+      () => inboxItem.id,
+      { onDelete: "set null" },
+    ),
+    version: integer("version").notNull().default(1),
+    lastMutationKey: uuid("last_mutation_key").notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("thought_account_updated_idx").on(
+      table.userId,
+      table.updatedAt,
+      table.id,
+    ),
+    index("thought_tombstone_purge_idx").on(table.deletedAt),
+  ],
+);
 
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),

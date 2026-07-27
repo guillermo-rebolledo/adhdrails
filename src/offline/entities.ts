@@ -78,7 +78,38 @@ const taskReconciler: EntityReconciler = {
   },
 };
 
+const thoughtReconciler: EntityReconciler = {
+  async applyServer(db, entityId, server) {
+    const local = await db.thoughts.get(entityId);
+    if (!local) return;
+    const serverVersion = server.version as number;
+    if (local.version === serverVersion) {
+      await db.thoughts.put({
+        id: server.id as string,
+        title: server.title as string,
+        body: server.body as string,
+        sourceInboxItemId: (server.sourceInboxItemId as string | null) ?? null,
+        version: serverVersion,
+        deletedAt: (server.deletedAt as string | null) ?? null,
+        createdAt: server.createdAt as string,
+        updatedAt: server.updatedAt as string,
+        syncState: "synced",
+      });
+    }
+  },
+  async removeLocal(db, entityId) {
+    await db.thoughts.delete(entityId);
+  },
+  async markState(db, entityId, state) {
+    const local = await db.thoughts.get(entityId);
+    if (local && local.syncState !== "synced") {
+      await db.thoughts.put({ ...local, syncState: state });
+    }
+  },
+};
+
 export const reconcilers: Record<SyncEntity, EntityReconciler> = {
   inbox_item: inboxReconciler,
   task: taskReconciler,
+  thought: thoughtReconciler,
 };

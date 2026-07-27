@@ -2,7 +2,8 @@
 
 import "fake-indexeddb/auto";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { captureInboxItem } from "@/offline/commands";
@@ -49,5 +50,28 @@ describe("InboxList", () => {
     render(<InboxList />);
 
     expect(await screen.findByText("Needs review")).toBeInTheDocument();
+  });
+
+  it("creates a Thought from an Inbox Item", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await captureInboxItem(db, "Reference to keep");
+    const user = userEvent.setup();
+    render(<InboxList />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Save as Thought" }),
+    );
+
+    expect(await db.thoughts.toArray()).toEqual([
+      expect.objectContaining({
+        title: "Reference to keep",
+        sourceInboxItemId: expect.any(String),
+      }),
+    ]);
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Saved as a Thought.",
+      ),
+    );
   });
 });
