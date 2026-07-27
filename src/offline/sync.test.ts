@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InboxItemResponse } from "@/domain/inbox/capture";
 
 import { captureInboxItem } from "./commands";
-import { RailsDatabase } from "./db";
+import { type OutboxEntry, RailsDatabase } from "./db";
 import {
   createSyncEngine,
   drainOutbox,
@@ -138,8 +138,14 @@ describe("createSyncEngine", () => {
     const send = vi.fn<(...args: unknown[]) => Promise<SendResult>>(
       async () => ({ ok: true, item: serverItem(item.id) }),
     );
+    const afterSync = vi.fn().mockResolvedValue(undefined);
 
-    const engine = createSyncEngine({ db, send, isOnline: () => online });
+    const engine = createSyncEngine({
+      db,
+      send,
+      isOnline: () => online,
+      afterSync,
+    });
     engine.start();
     await engine.sync();
 
@@ -152,7 +158,41 @@ describe("createSyncEngine", () => {
     await vi.waitFor(async () => {
       expect(await db.outbox.count()).toBe(0);
     });
+    expect(afterSync).toHaveBeenCalled();
 
+    engine.stop();
+  });
+
+  it("runs another drain when a mutation arrives during the post-sync pull", async () => {
+    db = freshDatabase();
+    let releasePull!: () => void;
+    const pullStarted = new Promise<void>((resolve) => {
+      releasePull = resolve;
+    });
+    let firstPull = true;
+    const afterSync = vi.fn(async () => {
+      if (firstPull) {
+        firstPull = false;
+        await pullStarted;
+      }
+    });
+    const send = vi.fn<(entry: OutboxEntry) => Promise<SendResult>>(
+      async (entry) => ({
+        ok: true,
+        item: serverItem(entry.entityId),
+      }),
+    );
+    const engine = createSyncEngine({ db, send, afterSync });
+    engine.start();
+    await vi.waitFor(() => expect(afterSync).toHaveBeenCalledOnce());
+
+    await captureInboxItem(db, "Queued during pull");
+    const synchronization = engine.sync();
+    releasePull();
+    await synchronization;
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(await db.outbox.count()).toBe(0);
     engine.stop();
   });
 });

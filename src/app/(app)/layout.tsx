@@ -29,7 +29,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <OfflineProvider>
+    <OfflineProvider accountId={account!.userId}>
       <AppShell>{children}</AppShell>
     </OfflineProvider>
   );

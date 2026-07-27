@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import type { InboxCaptureRequest } from "@/domain/inbox/capture";
 import type { Database } from "@/server/db/connection";
@@ -62,7 +62,9 @@ export function createInboxRepository(database: Database) {
       return database
         .select(recordColumns)
         .from(inboxItem)
-        .where(eq(inboxItem.userId, userId))
+        .where(
+          and(eq(inboxItem.userId, userId), isNull(inboxItem.classifiedAt)),
+        )
         .orderBy(desc(inboxItem.createdAt), desc(inboxItem.id));
     },
   };
