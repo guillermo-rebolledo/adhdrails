@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
+import { signIn } from "./support/session";
+
 test("proves the running application can reach PostgreSQL", async ({
   request,
 }) => {
@@ -17,6 +19,7 @@ test("proves the running application can reach PostgreSQL", async ({
 });
 
 test("renders secure, responsive navigation", async ({ page }) => {
+  await signIn(page);
   const response = await page.goto("/today");
 
   expect(response?.status()).toBe(200);
@@ -46,6 +49,7 @@ test("renders secure, responsive navigation", async ({ page }) => {
 test("uses System appearance by default and allows an explicit theme", async ({
   page,
 }) => {
+  await signIn(page);
   await page.goto("/today");
 
   await page.getByRole("button", { name: "Choose appearance" }).click();
@@ -64,6 +68,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.addInitScript((selectedTheme) => {
       window.localStorage.setItem("theme", selectedTheme);
     }, theme);
+    await signIn(page);
     await page.goto("/today");
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 
