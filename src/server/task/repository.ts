@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
 
 import type {
   TaskCollection,
@@ -55,10 +55,11 @@ export interface TaskUpdateWrite {
 
 export interface TaskCollectionPageQuery {
   collection: TaskCollection;
-  today: string;
+  today: string | null;
   areaId: string | null;
   energy: TaskEnergyFilter | null;
   cursor: TaskCursor | null;
+  direction: "forward" | "backward";
   /** The service passes `pageSize + 1` so it can detect another page. */
   limit: number;
 }
@@ -193,24 +194,34 @@ export function createTaskRepository(database: Database) {
           : eq(task.status, "active");
       const schedule =
         query.collection === "today"
-          ? eq(task.scheduledDate, query.today)
+          ? eq(task.scheduledDate, query.today!)
           : query.collection === "upcoming"
-            ? gt(task.scheduledDate, query.today)
+            ? gt(task.scheduledDate, query.today!)
             : undefined;
       const energy =
-        query.energy === "unset"
-          ? isNull(task.energy)
-          : query.energy
-            ? eq(task.energy, query.energy)
-            : undefined;
+        query.collection === "today" || query.collection === "upcoming"
+          ? undefined
+          : query.energy === "unset"
+            ? isNull(task.energy)
+            : query.energy
+              ? eq(task.energy, query.energy)
+              : undefined;
       const afterCursor = query.cursor
-        ? or(
-            gt(task.createdAt, new Date(query.cursor.createdAt)),
-            and(
-              eq(task.createdAt, new Date(query.cursor.createdAt)),
-              gt(task.id, query.cursor.id),
-            ),
-          )
+        ? query.direction === "backward"
+          ? or(
+              lt(task.createdAt, new Date(query.cursor.createdAt)),
+              and(
+                eq(task.createdAt, new Date(query.cursor.createdAt)),
+                lt(task.id, query.cursor.id),
+              ),
+            )
+          : or(
+              gt(task.createdAt, new Date(query.cursor.createdAt)),
+              and(
+                eq(task.createdAt, new Date(query.cursor.createdAt)),
+                gt(task.id, query.cursor.id),
+              ),
+            )
         : undefined;
 
       return database
@@ -226,7 +237,12 @@ export function createTaskRepository(database: Database) {
             afterCursor,
           ),
         )
-        .orderBy(asc(task.createdAt), asc(task.id))
+        .orderBy(
+          query.direction === "backward"
+            ? desc(task.createdAt)
+            : asc(task.createdAt),
+          query.direction === "backward" ? desc(task.id) : asc(task.id),
+        )
         .limit(query.limit);
     },
   };

@@ -132,6 +132,7 @@ describe("GET /api/v1/tasks", () => {
         energy: "low",
         areaId: "44444444-4444-4444-8444-444444444444",
         cursor: "abc",
+        direction: undefined,
       },
       expect.any(Number),
     );
@@ -160,7 +161,31 @@ describe("GET /api/v1/tasks", () => {
     expect(response.status).toBe(200);
     expect(listCollection).toHaveBeenCalledWith(
       "user_1",
-      expect.objectContaining({ collection: "anytime" }),
+      expect.objectContaining({ collection: "anytime", today: null }),
+      expect.any(Number),
+    );
+  });
+
+  it("rejects a Today view without an account-local date", async () => {
+    const listCollection = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: "invalid",
+      fieldErrors: { today: ["The account-local date is required."] },
+    });
+    const { GET } = createTasksRouteHandlers({
+      getAccountSummary: vi.fn().mockResolvedValue({ userId: "user_1" }),
+      getService: () => service({ listCollection }) as never,
+      createCorrelationId: () => "cor_1",
+    });
+
+    const response = await GET(
+      new Request("https://rails.example/api/v1/tasks?collection=today"),
+    );
+
+    expect(response.status).toBe(422);
+    expect(listCollection).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({ collection: "today", today: null }),
       expect.any(Number),
     );
   });

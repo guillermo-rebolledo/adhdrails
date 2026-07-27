@@ -7,6 +7,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Button } from "@/components/ui/button";
 import {
   TASK_COLLECTIONS,
+  TASK_COLLECTION_MAX_PAGES,
+  TASK_COLLECTION_WINDOW_SIZE,
   type TaskCollection,
   type TaskEnergyFilter,
   taskMatchesCollection,
@@ -37,12 +39,20 @@ function uniqueTasks(tasks: readonly LocalTask[]): LocalTask[] {
   return [...new Map(tasks.map((task) => [task.id, task])).values()];
 }
 
+interface TaskPageParam {
+  cursor: string | null;
+  direction: "forward" | "backward";
+}
+
 function taskPageLoader(
   db: RailsDatabase,
-  request: Omit<Parameters<typeof fetchTaskCollectionPage>[1], "cursor">,
+  request: Omit<
+    Parameters<typeof fetchTaskCollectionPage>[1],
+    "cursor" | "direction"
+  >,
 ) {
-  return ({ pageParam }: { pageParam: string | null }) =>
-    fetchTaskCollectionPage(db, { ...request, cursor: pageParam });
+  return ({ pageParam }: { pageParam: TaskPageParam }) =>
+    fetchTaskCollectionPage(db, { ...request, ...pageParam });
 }
 
 /**
@@ -60,6 +70,7 @@ export function TaskCollections({
   const [collection, setCollection] = useState<TaskCollection>("anytime");
   const [areaId, setAreaId] = useState<string | null>(null);
   const [energy, setEnergy] = useState<TaskEnergyFilter | null>(null);
+  const [localOffset, setLocalOffset] = useState(0);
 
   const areas =
     useLiveQuery(() => db.areas.orderBy("name").toArray(), [db]) ?? [];
@@ -67,8 +78,19 @@ export function TaskCollections({
   const query = useInfiniteQuery({
     queryKey: ["tasks", db.name, collection, today, areaId, energy],
     queryFn: taskPageLoader(db, { collection, today, areaId, energy }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: {
+      cursor: null,
+      direction: "forward",
+    } satisfies TaskPageParam,
+    getNextPageParam: (lastPage): TaskPageParam | undefined =>
+      lastPage.nextCursor
+        ? { cursor: lastPage.nextCursor, direction: "forward" }
+        : undefined,
+    getPreviousPageParam: (firstPage): TaskPageParam | undefined =>
+      firstPage.previousCursor
+        ? { cursor: firstPage.previousCursor, direction: "backward" }
+        : undefined,
+    maxPages: TASK_COLLECTION_MAX_PAGES,
   });
 
   const pageIds = useMemo(
@@ -76,11 +98,28 @@ export function TaskCollections({
     [query.data],
   );
   const pageIdsKey = pageIds.join(",");
+  const hasServerView = query.data !== undefined;
 
-  const tasks = useLiveQuery(async () => {
+  const taskView = useLiveQuery(async () => {
     let candidates: LocalTask[];
-    if (query.status === "error") {
-      candidates = await db.tasks.toArray();
+    if (!hasServerView) {
+      const status = collection === "completed" ? "completed" : "active";
+      const localRows = await db.tasks
+        .where("[status+createdAt+id]")
+        .between([status, "", ""], [status, "\uffff", "\uffff"])
+        .filter(
+          (task) =>
+            taskMatchesCollection(task, collection, today) &&
+            taskMatchesFilters(task, { areaId, energy }, collection),
+        )
+        .offset(localOffset)
+        .limit(TASK_COLLECTION_WINDOW_SIZE + 1)
+        .toArray();
+      return {
+        tasks: localRows.slice(0, TASK_COLLECTION_WINDOW_SIZE),
+        hasPrevious: localOffset > 0,
+        hasMore: localRows.length > TASK_COLLECTION_WINDOW_SIZE,
+      };
     } else {
       const paged = (await db.tasks.bulkGet(pageIds)).filter(
         (task): task is LocalTask => task !== undefined,
@@ -88,41 +127,68 @@ export function TaskCollections({
       const optimistic = await db.tasks
         .where("syncState")
         .notEqual("synced")
+        .filter(
+          (task) =>
+            taskMatchesCollection(task, collection, today) &&
+            taskMatchesFilters(task, { areaId, energy }, collection),
+        )
+        .limit(TASK_COLLECTION_WINDOW_SIZE)
         .toArray();
       candidates = uniqueTasks([...paged, ...optimistic]);
     }
 
     const position = new Map(pageIds.map((id, index) => [id, index]));
-    return candidates
-      .filter(
-        (task) =>
-          taskMatchesCollection(task, collection, today) &&
-          taskMatchesFilters(task, { areaId, energy }),
-      )
-      .sort((left, right) => {
-        const leftPosition = position.get(left.id);
-        const rightPosition = position.get(right.id);
-        if (leftPosition !== undefined && rightPosition !== undefined) {
-          return leftPosition - rightPosition;
-        }
-        if (leftPosition !== undefined) return -1;
-        if (rightPosition !== undefined) return 1;
-        return (
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id)
-        );
-      });
-  }, [db, query.status, pageIdsKey, collection, today, areaId, energy]);
+    return {
+      tasks: candidates
+        .filter(
+          (task) =>
+            taskMatchesCollection(task, collection, today) &&
+            taskMatchesFilters(task, { areaId, energy }, collection),
+        )
+        .sort((left, right) => {
+          const leftPosition = position.get(left.id);
+          const rightPosition = position.get(right.id);
+          if (leftPosition !== undefined && rightPosition !== undefined) {
+            return leftPosition - rightPosition;
+          }
+          if (leftPosition !== undefined) return -1;
+          if (rightPosition !== undefined) return 1;
+          return (
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id)
+          );
+        }),
+      hasPrevious: false,
+      hasMore: false,
+    };
+  }, [
+    db,
+    hasServerView,
+    pageIdsKey,
+    collection,
+    today,
+    areaId,
+    energy,
+    localOffset,
+  ]);
 
   const filtersActive = areaId !== null || energy !== null;
   // `useLiveQuery` may retain its previous result for one render while its
   // async query reruns. Re-apply the current public predicates synchronously so
   // switching views never flashes a Task from the old collection.
-  const visibleTasks = tasks?.filter(
+  const visibleTasks = taskView?.tasks.filter(
     (task) =>
       taskMatchesCollection(task, collection, today) &&
-      taskMatchesFilters(task, { areaId, energy }),
+      taskMatchesFilters(task, { areaId, energy }, collection),
   );
+
+  function selectCollection(next: TaskCollection) {
+    setCollection(next);
+    setLocalOffset(0);
+    if (next === "today" || next === "upcoming") {
+      setEnergy(null);
+    }
+  }
 
   function moveView(
     current: TaskCollection,
@@ -139,7 +205,7 @@ export function TaskCollections({
               TASK_COLLECTIONS.length) %
             TASK_COLLECTIONS.length;
     const next = TASK_COLLECTIONS[nextIndex];
-    setCollection(next);
+    selectCollection(next);
     document.getElementById(`task-tab-${next}`)?.focus();
   }
 
@@ -173,7 +239,7 @@ export function TaskCollections({
                 moveView(value, event.key);
               }
             }}
-            onClick={() => setCollection(value)}
+            onClick={() => selectCollection(value)}
             role="tab"
             tabIndex={collection === value ? 0 : -1}
             type="button"
@@ -188,7 +254,10 @@ export function TaskCollections({
           Filter by area
           <select
             className="h-9 rounded-lg border bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            onChange={(event) => setAreaId(event.target.value || null)}
+            onChange={(event) => {
+              setAreaId(event.target.value || null);
+              setLocalOffset(0);
+            }}
             value={areaId ?? ""}
           >
             <option value="">All areas</option>
@@ -204,9 +273,13 @@ export function TaskCollections({
           Filter by energy
           <select
             className="h-9 rounded-lg border bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            onChange={(event) =>
-              setEnergy((event.target.value || null) as TaskEnergyFilter | null)
-            }
+            disabled={collection === "today" || collection === "upcoming"}
+            onChange={(event) => {
+              setEnergy(
+                (event.target.value || null) as TaskEnergyFilter | null,
+              );
+              setLocalOffset(0);
+            }}
             value={energy ?? ""}
           >
             <option value="">All energy</option>
@@ -222,6 +295,7 @@ export function TaskCollections({
           onClick={() => {
             setAreaId(null);
             setEnergy(null);
+            setLocalOffset(0);
           }}
           variant="ghost"
         >
@@ -252,11 +326,36 @@ export function TaskCollections({
         ) : null}
       </div>
 
-      {query.hasNextPage ? (
+      {query.hasPreviousPage || (!hasServerView && taskView?.hasPrevious) ? (
+        <Button
+          className="self-start"
+          disabled={query.isFetchingPreviousPage}
+          onClick={() => {
+            if (hasServerView) {
+              void query.fetchPreviousPage();
+            } else {
+              setLocalOffset((offset) =>
+                Math.max(0, offset - TASK_COLLECTION_WINDOW_SIZE),
+              );
+            }
+          }}
+          variant="outline"
+        >
+          {query.isFetchingPreviousPage ? "Loading…" : "Load previous"}
+        </Button>
+      ) : null}
+
+      {query.hasNextPage || (!hasServerView && taskView?.hasMore) ? (
         <Button
           className="self-start"
           disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
+          onClick={() => {
+            if (hasServerView) {
+              void query.fetchNextPage();
+            } else {
+              setLocalOffset((offset) => offset + TASK_COLLECTION_WINDOW_SIZE);
+            }
+          }}
           variant="outline"
         >
           {query.isFetchingNextPage ? "Loading…" : "Load more"}

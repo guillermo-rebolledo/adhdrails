@@ -55,15 +55,16 @@ function serverTask(
   };
 }
 
-function renderCollections() {
+function renderCollections({ retry = false }: { retry?: boolean } = {}) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <TaskCollections today={TODAY} />
     </QueryClientProvider>,
   );
+  return { ...result, client };
 }
 
 afterEach(async () => {
@@ -150,7 +151,9 @@ describe("TaskCollections", () => {
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByLabelText("Filter by area")).toHaveValue("");
     expect(screen.getByLabelText("Filter by energy")).toHaveValue("");
-    expect(await screen.findByText("All tasks")).toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(screen.getByText("All tasks")).toBeInTheDocument(),
+    );
   });
 
   it("loads the next stable cursor page only on request", async () => {
@@ -181,6 +184,88 @@ describe("TaskCollections", () => {
 
     expect(await screen.findByText("Second page")).toBeInTheDocument();
     expect(apiRequest.mock.calls[1][0]).toContain("cursor=cursor-2");
+  });
+
+  it("retains only a bounded number of loaded pages", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    const pages = Array.from({ length: 6 }, (_, index) => ({
+      items: Array.from({ length: 20 }, (__, taskIndex) =>
+        serverTask(`Page ${index + 1} Task ${taskIndex + 1}`),
+      ),
+      nextCursor: index === 5 ? null : `cursor-${index + 2}`,
+      previousCursor: index === 0 ? null : `previous-${index + 1}`,
+    }));
+    for (const body of pages) {
+      apiRequest.mockResolvedValueOnce({ ok: true, status: 200, body });
+    }
+    apiRequest.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        ...pages[0],
+        nextCursor: "cursor-2",
+        previousCursor: null,
+      },
+    });
+    const user = userEvent.setup();
+    renderCollections();
+
+    await screen.findByText("Page 1 Task 1");
+    for (let page = 2; page <= 6; page += 1) {
+      await user.click(screen.getByRole("button", { name: "Load more" }));
+      await screen.findByText(`Page ${page} Task 1`);
+    }
+
+    expect(screen.queryByText("Page 1 Task 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Page 2 Task 1")).toBeInTheDocument();
+    expect(screen.getByText("Page 6 Task 20")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(100);
+
+    await user.click(screen.getByRole("button", { name: "Load previous" }));
+    expect(await screen.findByText("Page 1 Task 1")).toBeInTheDocument();
+    expect(screen.queryByText("Page 6 Task 1")).not.toBeInTheDocument();
+    expect(apiRequest.mock.calls[6][0]).toContain("direction=backward");
+  });
+
+  it("shows the bounded durable replica while the first server request is pending", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await db.tasks.put({
+      ...serverTask("Already saved"),
+      deletedAt: null,
+      syncState: "synced",
+    });
+    apiRequest.mockReturnValue(new Promise(() => undefined));
+
+    renderCollections({ retry: true });
+
+    expect(await screen.findByText("Already saved")).toBeInTheDocument();
+  });
+
+  it("pages through a deterministic bounded offline window in both directions", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await db.tasks.bulkPut(
+      Array.from({ length: 120 }, (_, index) => ({
+        ...serverTask(`Offline task ${index + 1}`, {
+          createdAt: new Date(2026, 6, 27, 10, 0, index).toISOString(),
+        }),
+        deletedAt: null,
+        syncState: "synced" as const,
+      })),
+    );
+    apiRequest.mockRejectedValue(new TypeError("offline"));
+    const user = userEvent.setup();
+    renderCollections();
+
+    await screen.findByRole("status");
+    expect(await screen.findAllByRole("listitem")).toHaveLength(100);
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await vi.waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(20),
+    );
+    await user.click(screen.getByRole("button", { name: "Load previous" }));
+    await vi.waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(100),
+    );
   });
 
   it("falls back to filtered Dexie Tasks when the server view is offline", async () => {
@@ -218,5 +303,29 @@ describe("TaskCollections", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("clears and disables Energy when browsing fixed commitments", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    apiRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { items: [], nextCursor: null },
+    });
+    const user = userEvent.setup();
+    renderCollections();
+
+    const energy = screen.getByLabelText("Filter by energy");
+    await user.selectOptions(energy, "low");
+    await user.click(screen.getByRole("tab", { name: "Today" }));
+
+    expect(energy).toHaveValue("");
+    expect(energy).toBeDisabled();
+    await vi.waitFor(() => {
+      const todayRequest = apiRequest.mock.calls.find(([path]) =>
+        String(path).includes("collection=today"),
+      );
+      expect(todayRequest?.[0]).not.toContain("energy=");
+    });
   });
 });

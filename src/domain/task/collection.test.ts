@@ -73,6 +73,14 @@ describe("Task collection membership", () => {
     expect(taskMatchesFilters(task, { energy: "high" })).toBe(false);
     expect(taskMatchesFilters(active, { energy: "unset" })).toBe(true);
   });
+
+  it("never lets Energy hide fixed Today or Upcoming commitments", () => {
+    const fixed = { ...active, energy: "high" as const };
+
+    expect(taskMatchesFilters(fixed, { energy: "low" }, "today")).toBe(true);
+    expect(taskMatchesFilters(fixed, { energy: "low" }, "upcoming")).toBe(true);
+    expect(taskMatchesFilters(fixed, { energy: "low" }, "anytime")).toBe(false);
+  });
 });
 
 describe("Task collection cursor", () => {

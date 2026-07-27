@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   scheduledDateSchema,
   TASK_ENERGIES,
+  taskResponseSchema,
   type TaskEnergy,
   type TaskStatus,
 } from "./task";
@@ -27,6 +28,10 @@ export type TaskEnergyFilter = z.infer<typeof taskEnergyFilterSchema>;
 
 /** A bounded page keeps long Task inventories responsive. */
 export const TASK_COLLECTION_PAGE_SIZE = 20;
+/** Retain at most 100 server-backed rows in one collection view. */
+export const TASK_COLLECTION_MAX_PAGES = 5;
+export const TASK_COLLECTION_WINDOW_SIZE =
+  TASK_COLLECTION_PAGE_SIZE * TASK_COLLECTION_MAX_PAGES;
 
 /**
  * Every collection uses the stable `(createdAt, id)` key. The account/status
@@ -122,9 +127,14 @@ export function taskMatchesCollection(
 export function taskMatchesFilters(
   task: CollectionTask,
   filters: TaskCollectionFilters,
+  collection: TaskCollection = "anytime",
 ): boolean {
   if (filters.areaId && task.areaId !== filters.areaId) {
     return false;
+  }
+  // Energy describes flexible capacity. It must never hide a fixed commitment.
+  if (collection === "today" || collection === "upcoming") {
+    return true;
   }
   if (filters.energy === UNSET_ENERGY_FILTER) {
     return task.energy === null;
@@ -135,12 +145,36 @@ export function taskMatchesFilters(
   return true;
 }
 
-export const taskCollectionQuerySchema = z.object({
-  collection: taskCollectionSchema.default("anytime"),
-  today: scheduledDateSchema,
-  areaId: z.uuid().nullable().default(null),
-  energy: taskEnergyFilterSchema.nullable().default(null),
-  cursor: z.string().nullable().default(null),
-});
+export const taskCollectionQuerySchema = z
+  .object({
+    collection: taskCollectionSchema.default("anytime"),
+    today: scheduledDateSchema.nullable().default(null),
+    areaId: z.uuid().nullable().default(null),
+    energy: taskEnergyFilterSchema.nullable().default(null),
+    cursor: z.string().nullable().default(null),
+    direction: z.enum(["forward", "backward"]).default("forward"),
+  })
+  .superRefine((query, context) => {
+    if (
+      (query.collection === "today" || query.collection === "upcoming") &&
+      !query.today
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["today"],
+        message: "The account-local date is required for this collection.",
+      });
+    }
+  });
 
 export type TaskCollectionQuery = z.infer<typeof taskCollectionQuerySchema>;
+
+/** Shared wire contract for the collection route and offline reconciliation. */
+export const taskCollectionPageResponseSchema = z.object({
+  items: z.array(taskResponseSchema),
+  nextCursor: z.string().nullable(),
+  previousCursor: z.string().nullable().default(null),
+});
+export type TaskCollectionPageResponse = z.infer<
+  typeof taskCollectionPageResponseSchema
+>;

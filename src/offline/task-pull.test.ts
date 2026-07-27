@@ -63,7 +63,11 @@ describe("Task collection reconciliation", () => {
       cursor: null,
     });
 
-    expect(page).toEqual({ ids: [ID], nextCursor: "cursor-2" });
+    expect(page).toEqual({
+      ids: [ID],
+      nextCursor: "cursor-2",
+      previousCursor: null,
+    });
     expect(await db.tasks.get(ID)).toMatchObject({
       title: "Server task",
       version: 2,

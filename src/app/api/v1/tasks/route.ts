@@ -1,4 +1,7 @@
-import { TASK_COLLECTION_PAGE_SIZE } from "@/domain/task/collection";
+import {
+  TASK_COLLECTION_PAGE_SIZE,
+  taskCollectionPageResponseSchema,
+} from "@/domain/task/collection";
 import { getAccountSummary } from "@/server/auth/session";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
@@ -35,14 +38,13 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
       account.userId,
       {
         collection: url.searchParams.get("collection") ?? "anytime",
-        // The Tasks screen always sends the account-local date. Keeping a UTC
-        // fallback preserves the original no-parameter API for simple callers.
-        today:
-          url.searchParams.get("today") ??
-          new Date().toISOString().slice(0, 10),
+        // Callers must supply the account-local date; deriving it in UTC would
+        // misclassify Today near timezone boundaries.
+        today: url.searchParams.get("today"),
         areaId: url.searchParams.get("areaId"),
         energy: url.searchParams.get("energy"),
         cursor: url.searchParams.get("cursor"),
+        direction: url.searchParams.get("direction") ?? undefined,
       },
       TASK_COLLECTION_PAGE_SIZE,
     );
@@ -52,10 +54,11 @@ export function createTasksRouteHandlers(deps: TasksRouteDependencies) {
     }
 
     return jsonResponse(
-      {
+      taskCollectionPageResponseSchema.parse({
         items: result.items.map(serializeTask),
         nextCursor: result.nextCursor,
-      },
+        previousCursor: result.previousCursor,
+      }),
       correlationId,
     );
   }

@@ -354,6 +354,7 @@ describe("createTaskService.listCollection", () => {
       areaId: "44444444-4444-4444-8444-444444444444",
       energy: "low",
       cursor: null,
+      direction: "forward",
       limit: 2,
     });
   });

@@ -1,18 +1,12 @@
-import { z } from "zod";
-
-import type {
-  TaskCollection,
-  TaskEnergyFilter,
+import {
+  taskCollectionPageResponseSchema,
+  type TaskCollection,
+  type TaskEnergyFilter,
 } from "@/domain/task/collection";
-import { taskResponseSchema, type TaskResponse } from "@/domain/task/task";
+import type { TaskResponse } from "@/domain/task/task";
 import { apiRequest } from "@/lib/api-client";
 
 import type { RailsDatabase } from "./db";
-
-const taskPageSchema = z.object({
-  items: z.array(taskResponseSchema),
-  nextCursor: z.string().nullable(),
-});
 
 export interface TaskPageRequest {
   collection: TaskCollection;
@@ -20,12 +14,14 @@ export interface TaskPageRequest {
   areaId: string | null;
   energy: TaskEnergyFilter | null;
   cursor: string | null;
+  direction?: "forward" | "backward";
 }
 
 /** Query-owned view state: membership/order only, never Task entity fields. */
 export interface LocalTaskPage {
   ids: string[];
   nextCursor: string | null;
+  previousCursor: string | null;
 }
 
 function toLocalTask(task: TaskResponse) {
@@ -82,6 +78,7 @@ export async function fetchTaskCollectionPage(
   if (request.areaId) params.set("areaId", request.areaId);
   if (request.energy) params.set("energy", request.energy);
   if (request.cursor) params.set("cursor", request.cursor);
+  if (request.direction === "backward") params.set("direction", "backward");
 
   const response = await apiRequest<unknown>(
     `/api/v1/tasks?${params.toString()}`,
@@ -90,10 +87,11 @@ export async function fetchTaskCollectionPage(
     throw new Error("Could not load tasks.");
   }
 
-  const page = taskPageSchema.parse(response.body);
+  const page = taskCollectionPageResponseSchema.parse(response.body);
   await reconcileTaskPage(db, page.items);
   return {
     ids: page.items.map((task) => task.id),
     nextCursor: page.nextCursor,
+    previousCursor: page.previousCursor,
   };
 }
