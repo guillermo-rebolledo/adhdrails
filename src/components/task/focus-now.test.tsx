@@ -3,6 +3,7 @@
 import "fake-indexeddb/auto";
 
 import { render, screen, waitFor, within } from "@testing-library/react";
+import Dexie from "dexie";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -55,6 +56,34 @@ describe("FocusNow", () => {
     ).toBeInTheDocument();
     // Calm — no urgency or guilt language.
     expect(screen.queryByText(/overdue|hurry|late/i)).not.toBeInTheDocument();
+  });
+
+  it("treats an older local task without planning fields as flexible work", async () => {
+    const name = `test-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(5).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    await legacy.table("tasks").add({
+      id: crypto.randomUUID(),
+      title: "Legacy local task",
+      status: "active",
+      version: 1,
+      createdAt: "2026-07-20T12:00:00Z",
+      deletedAt: null,
+      syncState: "synced",
+    });
+    legacy.close();
+
+    db = new RailsDatabase(name);
+    renderFocusNow();
+
+    expect(await screen.findByText("Legacy local task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 
   it("recommends one task with a concise explanation and an explicit Start", async () => {

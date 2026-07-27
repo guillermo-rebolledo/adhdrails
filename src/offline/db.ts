@@ -200,6 +200,34 @@ export class RailsDatabase extends Dexie {
       areas: "id, name, syncState",
       outbox: "id, entity, status, sequence, createdAt",
     });
+    // Planning fields joined LocalTask in version 6, but declaring the store
+    // schema did not add properties to Task objects already persisted by older
+    // clients. Normalize those records before consumers read them; otherwise
+    // strict null checks can mistake `undefined` for a timed schedule.
+    this.version(8)
+      .stores({
+        inboxItems: "id, createdAt, syncState, deletedAt",
+        tasks:
+          "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+        thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+        events: "id, startAt, deletedAt, syncState",
+        areas: "id, name, syncState",
+        outbox: "id, entity, status, sequence, createdAt",
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table<LocalTask, string>("tasks")
+          .toCollection()
+          .modify((task) => {
+            task.scheduledDate ??= null;
+            task.scheduledTime ??= null;
+            task.estimateMinutes ??= null;
+            task.energy ??= null;
+            task.important ??= false;
+            task.notes ??= "";
+            task.areaId ??= null;
+          });
+      });
   }
 }
 
