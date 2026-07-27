@@ -22,3 +22,5 @@
 # editor and operating-system files
 .DS_Store
 *.swp
+.vercel
+.env*
