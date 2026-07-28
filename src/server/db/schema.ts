@@ -620,6 +620,100 @@ export const calendarSyncJob = pgTable(
   ],
 );
 
+/**
+ * Account-wide reminder choices. Browser subscriptions are deliberately stored
+ * separately because each browser/device can be enabled or removed on its own.
+ * A missing row resolves to the domain defaults.
+ */
+export const reminderPreference = pgTable("reminder_preference", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  headsUpEnabled: boolean("heads_up_enabled").notNull().default(true),
+  leadMinutes: integer("lead_minutes").notNull().default(10),
+  atTimeEnabled: boolean("at_time_enabled").notNull().default(false),
+  eventCueEnabled: boolean("event_cue_enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * One standard VAPID subscription for one browser profile. The endpoint and
+ * encryption keys are provider-issued credentials, remain server-only, and are
+ * never included in logs or push payloads.
+ */
+export const pushSubscription = pgTable(
+  "push_subscription",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    expirationTime: timestamp("expiration_time", { withTimezone: true }),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("push_subscription_endpoint_idx").on(table.endpoint),
+    index("push_subscription_account_idx").on(table.userId, table.id),
+  ],
+);
+
+/**
+ * Per-device idempotency and retry state for timed Task reminders. The unique
+ * key means a scheduler retry cannot notify the same browser twice for the same
+ * Task moment, while another browser retains its own independent delivery.
+ */
+export const taskReminderDelivery = pgTable(
+  "task_reminder_delivery",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => pushSubscription.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("processing"),
+    attempts: integer("attempts").notNull().default(1),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("task_reminder_delivery_once_idx").on(
+      table.subscriptionId,
+      table.taskId,
+      table.kind,
+      table.scheduledFor,
+    ),
+    index("task_reminder_delivery_retry_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.id,
+    ),
+  ],
+);
+
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

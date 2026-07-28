@@ -4,9 +4,12 @@ import { redirect } from "next/navigation";
 
 import { AccountSettingsForm } from "@/components/settings/account-settings-form";
 import { CalendarSettings } from "@/components/settings/calendar-settings";
+import { NotificationSettings } from "@/components/settings/notification-settings";
 import { getAccountSummary } from "@/server/auth/session";
 import { serializeConnection } from "@/server/calendar/http";
 import { getCalendarService } from "@/server/calendar/service-factory";
+import { webPushPublicKey } from "@/server/notification/env";
+import { getNotificationRepository } from "@/server/notification/service-factory";
 
 export default async function SettingsPage() {
   const account = await getAccountSummary(await headers());
@@ -15,7 +18,10 @@ export default async function SettingsPage() {
     redirect("/signin");
   }
 
-  const connection = await getCalendarService().getConnection(account.userId);
+  const [connection, reminderPreferences] = await Promise.all([
+    getCalendarService().getConnection(account.userId),
+    getNotificationRepository().getPreferences(account.userId),
+  ]);
 
   return (
     <section className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -52,6 +58,11 @@ export default async function SettingsPage() {
           accountLocale={account.locale}
         />
       </Suspense>
+
+      <NotificationSettings
+        initialPreferences={reminderPreferences}
+        vapidPublicKey={webPushPublicKey()}
+      />
     </section>
   );
 }

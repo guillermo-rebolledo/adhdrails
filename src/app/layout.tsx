@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { Geist } from "next/font/google";
+import { SerwistProvider } from "@serwist/turbopack/react";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -30,15 +31,21 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          disableTransitionOnChange
-          enableSystem
-          nonce={nonce}
+        <SerwistProvider
+          cacheOnNavigation={false}
+          reloadOnOnline={false}
+          swUrl="/serwist/sw.js"
         >
-          <TooltipProvider>{children}</TooltipProvider>
-        </ThemeProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            disableTransitionOnChange
+            enableSystem
+            nonce={nonce}
+          >
+            <TooltipProvider>{children}</TooltipProvider>
+          </ThemeProvider>
+        </SerwistProvider>
       </body>
     </html>
   );

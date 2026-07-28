@@ -99,6 +99,13 @@
       "when": 1785263144848,
       "tag": "0013_woozy_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785269232582,
+      "tag": "0014_icy_giant_man",
+      "breakpoints": true
     }
   ]
 }
