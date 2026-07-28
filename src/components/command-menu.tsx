@@ -291,7 +291,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
                     key={entry.id}
                     aria-selected={isActive}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm outline-none",
+                      "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none [&_svg]:size-4 [&_svg]:shrink-0",
                       isActive
                         ? "bg-muted text-foreground"
                         : "text-foreground/90",
