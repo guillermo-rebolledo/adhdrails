@@ -66,6 +66,11 @@ try {
     BETTER_AUTH_SECRET: "rails-test-secret-value-not-for-production",
     GOOGLE_CLIENT_ID: "rails-test-google-client-id",
     GOOGLE_CLIENT_SECRET: "rails-test-google-client-secret",
+    // The production `next start` build requires a Calendar token key. A fixed
+    // 32-byte base64 key keeps the encrypted-token round trip deterministic in
+    // e2e, mirroring how the auth secrets above are supplied to the test runtime.
+    CALENDAR_TOKEN_KEY_VERSION: "1",
+    CALENDAR_TOKEN_KEY_V1: "RrVgpBEL9NQ+Tp+tBN+nDqxjIh23DWae9xqqNf1XOwU=",
   };
 
   await runCommand("pnpm", ["db:migrate"], environment);
@@ -78,6 +83,7 @@ try {
       "run",
       "src/server/task/repository.integration.test.ts",
       "src/server/focus/repository.integration.test.ts",
+      "src/server/calendar/repository.integration.test.ts",
     ],
     environment,
   );
