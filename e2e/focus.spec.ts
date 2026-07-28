@@ -63,17 +63,67 @@ test.describe("focus session UI journeys", () => {
     await expect(reopened.getByText("Counting up — no rush.")).toBeVisible();
     await expect.poll(() => activeSessionStatus(page)).toBe("running");
 
-    // Completing records history and returns to Today without auto-starting.
+    // Completing shows the calm acknowledgement and returns to Today without
+    // auto-starting. The completion is held during its Undo window, so it only
+    // reaches the server once the user deliberately moves on.
     await reopened.getByRole("button", { name: "Complete" }).click();
     await expect(
       page.getByText("Focus complete. Nicely done — take a breath."),
     ).toBeVisible();
     await expect(page.getByLabel("Focus session")).toHaveCount(0);
-    await expect.poll(() => activeSessionStatus(page)).toBeNull();
 
     await page.getByRole("button", { name: "Return to Today" }).click();
-    // Back to a recommendation — nothing started on its own.
+    // Finalizing clears the account's active session; nothing started on its own.
+    await expect.poll(() => activeSessionStatus(page)).toBeNull();
     await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
+  });
+
+  test("keeps focus low-distraction: capture, undo, and deliberate next items", async ({
+    page,
+  }) => {
+    await signIn(page, { onboarded: true });
+    await createTaskAndFocus(page, "Write the summary");
+
+    const card = page.getByLabel("Focus session");
+
+    // A distraction is parked in the Inbox with a subtle confirmation, without
+    // leaving the Task.
+    await card
+      .getByRole("textbox", { name: /park it and stay here/i })
+      .fill("Email Alex back");
+    await card.getByRole("button", { name: "Save" }).click();
+    await expect(card.getByText("Saved to Inbox.")).toBeVisible();
+    await expect(card).toBeVisible();
+
+    // The expanded focus view opens as a dialog and returns without pausing.
+    await card.getByRole("button", { name: "Enter focus view" }).click();
+    const view = page.getByRole("dialog");
+    await expect(view.getByRole("timer")).toBeVisible();
+    await view.getByRole("button", { name: "Exit focus view" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // The distraction is waiting in the Inbox.
+    await page.goto("/inbox");
+    await expect(page.getByText("Email Alex back")).toBeVisible();
+    await page.goto("/today");
+
+    // Completing offers Undo; undoing resumes the very same session.
+    await page
+      .getByLabel("Focus session")
+      .getByRole("button", { name: "Complete" })
+      .click();
+    await expect(page.getByLabel("Focus complete")).toBeVisible();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(page.getByLabel("Focus session")).toBeVisible();
+    await expect.poll(() => activeSessionStatus(page)).not.toBeNull();
+
+    // Completing again and choosing View next items never auto-starts a Task.
+    await page
+      .getByLabel("Focus session")
+      .getByRole("button", { name: "Complete" })
+      .click();
+    await page.getByRole("button", { name: "View next items" }).click();
+    await expect(page.getByRole("timer")).toHaveCount(0);
   });
 
   test("refuses a second, competing active session for the account", async ({

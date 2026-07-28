@@ -146,6 +146,7 @@ describe("createFocusSessionService.transition", () => {
     accumulatedSeconds: 70,
     lastResumedAt: null,
     completedAt: null,
+    distractionCount: 2,
   };
 
   it("reports a missing session", async () => {
@@ -178,6 +179,7 @@ describe("createFocusSessionService.transition", () => {
       accumulatedSeconds: 70,
       lastResumedAt: null,
       completedAt: null,
+      distractionCount: 2,
       version: 2,
       idempotencyKey: OTHER_KEY,
     });
@@ -253,6 +255,7 @@ describe("createFocusSessionService.transition", () => {
       accumulatedSeconds: 120,
       lastResumedAt: null,
       completedAt: NOW.toISOString(),
+      distractionCount: 3,
     });
 
     expect(result).toEqual({ ok: true, item: completed, applied: true });
@@ -261,6 +264,7 @@ describe("createFocusSessionService.transition", () => {
       accumulatedSeconds: 120,
       lastResumedAt: null,
       completedAt: NOW,
+      distractionCount: 3,
       version: 2,
       idempotencyKey: OTHER_KEY,
     });

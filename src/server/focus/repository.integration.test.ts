@@ -86,11 +86,18 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: null,
+      // A distraction captured during focus rides the transition and persists.
+      distractionCount: 2,
     });
     expect(paused).toMatchObject({
       ok: true,
       applied: true,
-      item: { status: "paused", version: 2, lastResumedAt: null },
+      item: {
+        status: "paused",
+        version: 2,
+        lastResumedAt: null,
+        distractionCount: 2,
+      },
     });
 
     // Completing clears the active session so a new one may start later.
@@ -101,6 +108,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: new Date().toISOString(),
+      distractionCount: 0,
     });
     expect(done).toMatchObject({ ok: true, item: { status: "completed" } });
     expect(await svc.getActive(USER_IDS[0])).toBeNull();
@@ -136,6 +144,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: new Date().toISOString(),
+      distractionCount: 0,
     });
   });
 
@@ -156,6 +165,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: null,
+      distractionCount: 0,
     });
 
     // A second device still believes it is at version 1.
@@ -166,6 +176,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: new Date().toISOString(),
+      distractionCount: 0,
     });
     expect(stale).toMatchObject({ ok: false, reason: "conflict" });
 
@@ -183,6 +194,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: new Date().toISOString(),
+      distractionCount: 0,
     });
   });
 
@@ -212,6 +224,7 @@ describe.skipIf(!connection)("Focus Session PostgreSQL integration", () => {
       accumulatedSeconds: 0,
       lastResumedAt: null,
       completedAt: new Date().toISOString(),
+      distractionCount: 0,
     });
     expect(forged).toMatchObject({ ok: false, reason: "not_found" });
   });

@@ -175,6 +175,105 @@ describe("FocusNow", () => {
     ).toBeInTheDocument();
   });
 
+  it("undoes a completion within its window and resumes the session", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createTask(db, { title: "Only task" });
+    const user = userEvent.setup();
+    renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+    await screen.findByLabelText("Focus complete");
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    // The session is running again — the timer and Pause control return.
+    const card = await screen.findByLabelText("Focus session");
+    expect(within(card).getByRole("timer")).toBeInTheDocument();
+    await waitFor(async () => {
+      const [session] = await db.focusSessions.toArray();
+      expect(session.status).toBe("running");
+    });
+    // No completion transition was left queued to flush.
+    const updates = (await db.outbox.toArray()).filter(
+      (entry) =>
+        entry.entity === "focus_session" && entry.operation === "update",
+    );
+    expect(updates).toHaveLength(0);
+  });
+
+  it("flushes a held completion if the card is interrupted before finalizing", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createTask(db, { title: "Only task" });
+    const user = userEvent.setup();
+    const { unmount } = renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+    await screen.findByLabelText("Focus complete");
+
+    // The completion is held (not yet synced); an interruption must not lose it.
+    sync.mockClear();
+    unmount();
+    expect(sync).toHaveBeenCalled();
+  });
+
+  it("offers to mark the underlying Task done from the completion prompt", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    const task = await createTask(db, { title: "Only task" });
+    const user = userEvent.setup();
+    renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+
+    await user.click(
+      await screen.findByRole("button", { name: "Mark task done" }),
+    );
+    expect(await screen.findByText(/marked .* done/i)).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await db.tasks.get(task.id))?.status).toBe("completed");
+    });
+  });
+
+  it("orders next items with time-sensitive work first and never auto-starts", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    // Recommended first (oldest, unscheduled) — the one we will focus.
+    await createTask(db, { title: "Focus target" });
+    await createTask(db, { title: "Loose end" });
+    // Scheduled for later today — time-sensitive, not yet due so not recommended.
+    await createTask(db, {
+      title: "Check-in",
+      scheduledDate: "2026-07-27",
+      scheduledTime: "15:00",
+    });
+    const user = userEvent.setup();
+    renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+    await user.click(
+      await screen.findByRole("button", { name: "View next items" }),
+    );
+
+    // Time-sensitive scheduled work is grouped ahead of loose unscheduled work.
+    const comingUp = await screen.findByRole("list", { name: "Coming up" });
+    expect(within(comingUp).getByText("Check-in")).toBeInTheDocument();
+    const whenReady = screen.getByRole("list", { name: "When you're ready" });
+    expect(within(whenReady).getByText("Loose end")).toBeInTheDocument();
+    // The Task just stepped away from is not re-offered as the next thing.
+    expect(within(whenReady).queryByText("Focus target")).toBeNull();
+
+    // Nothing started on its own — no timer until the user chooses.
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument();
+
+    await user.click(
+      within(whenReady).getByRole("button", { name: "Focus on Loose end" }),
+    );
+    const card = await screen.findByLabelText("Focus session");
+    expect(await within(card).findByText("Loose end")).toBeInTheDocument();
+  });
+
   it("lets the user manually choose another task without a carousel", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
     await createTask(db, { title: "Recommended", important: true });

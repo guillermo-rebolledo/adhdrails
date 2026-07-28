@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import { Button } from "@/components/ui/button";
 import { addMinutesToInstant } from "@/domain/calendar/agenda";
 import { formatTime } from "@/domain/calendar/format";
+import { type NextItems, orderNextItems } from "@/domain/focus/next-items";
 import { FOCUS_COMPLETED_MESSAGE } from "@/domain/focus/session";
 import {
   computeDeferral,
@@ -16,12 +17,38 @@ import {
 } from "@/domain/task/recommend";
 import { useCurrentEnergy } from "@/hooks/use-current-energy";
 import type { LocalFocusSession } from "@/offline/db";
-import { completeFocus, startFocus } from "@/offline/focus-commands";
-import { updateTask } from "@/offline/task-commands";
+import {
+  completeFocus,
+  startFocus,
+  undoFocusCompletion,
+} from "@/offline/focus-commands";
+import { completeTask, updateTask } from "@/offline/task-commands";
 import { useOffline } from "@/offline/provider";
 
 import { EnergyRightNow } from "./energy-right-now";
+import { FocusNextItems } from "./focus-next-items";
 import { FocusSession } from "./focus-session";
+
+/** How long a just-completed session can be undone before it flushes to sync. */
+const COMPLETION_UNDO_WINDOW_MS = 10_000;
+
+/** Drops a Task (by id) from both next-item groups, leaving Events untouched. */
+function excludeTask(items: NextItems, taskId: string): NextItems {
+  const keep = (item: { kind: string; id: string }) =>
+    !(item.kind === "task" && item.id === taskId);
+  return {
+    timeSensitive: items.timeSensitive.filter(keep),
+    flexible: items.flexible.filter(keep),
+  };
+}
+
+/** The completion acknowledgement's state while the user chooses what follows. */
+interface CompletionState {
+  /** The pre-completion session snapshot, so Undo restores it exactly. */
+  prior: LocalFocusSession;
+  taskId: string;
+  taskTitle: string;
+}
 
 /**
  * Picks the one session to treat as active, preferring a session confirmed or
@@ -54,11 +81,14 @@ export function FocusNow({
   timeZone,
   locale,
   now,
+  undoWindowMs = COMPLETION_UNDO_WINDOW_MS,
 }: {
   timeZone: string;
   locale: string;
   /** The reference instant. Defaults to now; injectable to keep tests stable. */
   now?: string;
+  /** The completion Undo window. Overridable only to keep tests fast. */
+  undoWindowMs?: number;
 }) {
   const { db, sync, accountId } = useOffline();
   const { energy, setEnergy } = useCurrentEnergy(accountId);
@@ -106,7 +136,27 @@ export function FocusNow({
   const [notice, setNotice] = useState<string | null>(null);
   // A calm completion acknowledgement, shown after a session ends until the user
   // deliberately chooses what follows. No Task ever starts automatically.
-  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
+  const [completion, setCompletion] = useState<CompletionState | null>(null);
+  const [undoAvailable, setUndoAvailable] = useState(false);
+  const [showNextItems, setShowNextItems] = useState(false);
+  const [taskDone, setTaskDone] = useState(false);
+  // The completion is acknowledged locally but held back from sync until the
+  // Undo window elapses (a delivered completion is terminal on the server).
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalizedRef = useRef(true);
+
+  // Never silently lose a held completion: flush it if the card unmounts first.
+  useEffect(() => {
+    return () => {
+      if (undoTimer.current) {
+        clearTimeout(undoTimer.current);
+      }
+      if (!finalizedRef.current) {
+        finalizedRef.current = true;
+        void sync();
+      }
+    };
+  }, [sync]);
 
   const recommendation = useMemo(
     () =>
@@ -117,6 +167,20 @@ export function FocusNow({
         commitments: commitments ?? [],
       }),
     [tasks, commitments, reference, timeZone, energy],
+  );
+
+  // The deliberate "what's next" ordering, computed once so "View next items"
+  // is instant. Time-sensitive context (today's events and scheduled Tasks)
+  // leads available unscheduled work; nothing here ever starts automatically.
+  const nextItems = useMemo(
+    () =>
+      orderNextItems({
+        now: reference,
+        timeZone,
+        events: commitments ?? [],
+        tasks: tasks ?? [],
+      }),
+    [reference, timeZone, commitments, tasks],
   );
 
   // Still loading the local replica — render nothing rather than a flash.
@@ -164,6 +228,10 @@ export function FocusNow({
   }
 
   async function onStart(taskId: string) {
+    // Any held completion is committed before a new session begins.
+    finalizeCompletion();
+    setCompletion(null);
+    setShowNextItems(false);
     // Starting creates the account's only active session; the server resolves a
     // competing session started elsewhere into a visible conflict on sync.
     await startFocus(db, { taskId });
@@ -172,10 +240,74 @@ export function FocusNow({
     setDeferOpen(false);
   }
 
-  async function onCompleteSession(sessionId: string) {
-    await completeFocus(db, sessionId);
+  /** Flush the held completion (idempotent) and stop its Undo window. */
+  function finalizeCompletion() {
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    setUndoAvailable(false);
+    if (!finalizedRef.current) {
+      finalizedRef.current = true;
+      void sync();
+    }
+  }
+
+  async function onCompleteSession(session: LocalFocusSession) {
+    // Snapshot the pre-completion session so Undo can restore it exactly, then
+    // acknowledge completion locally without syncing yet.
+    const prior = { ...session };
+    const task = await db.tasks.get(session.taskId);
+    await completeFocus(db, session.id);
+    finalizedRef.current = false;
+    setTaskDone(false);
+    setShowNextItems(false);
+    setCompletion({
+      prior,
+      taskId: session.taskId,
+      taskTitle: task?.title ?? "your task",
+    });
+    setUndoAvailable(true);
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+    }
+    undoTimer.current = setTimeout(finalizeCompletion, undoWindowMs);
+  }
+
+  async function onUndoCompletion() {
+    if (!completion) {
+      return;
+    }
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    // Nothing to flush: undo removes the queued completion and restores state.
+    finalizedRef.current = true;
+    await undoFocusCompletion(db, completion.prior);
+    setCompletion(null);
+    setUndoAvailable(false);
+    setShowNextItems(false);
+  }
+
+  function onReturnToday() {
+    finalizeCompletion();
+    setCompletion(null);
+    setShowNextItems(false);
+  }
+
+  function onViewNextItems() {
+    finalizeCompletion();
+    setShowNextItems(true);
+  }
+
+  async function onCompleteTask() {
+    if (!completion) {
+      return;
+    }
+    await completeTask(db, completion.taskId);
     void sync();
-    setCompletionNotice(FOCUS_COMPLETED_MESSAGE);
+    setTaskDone(true);
   }
 
   return (
@@ -190,27 +322,70 @@ export function FocusNow({
         ) : null}
       </div>
 
-      {completionNotice ? (
+      {completion ? (
         // A calm acknowledgement after completing a session. Return to Today is
-        // the primary next action; nothing starts on its own.
+        // the primary next action; nothing starts on its own. A brief Undo can
+        // reverse the completion, and the user may also mark the Task itself done.
         <div
           aria-label="Focus complete"
           className="rounded-xl border bg-card p-6 text-card-foreground"
         >
           <p className="font-medium" role="status">
-            {completionNotice}
+            {FOCUS_COMPLETED_MESSAGE}
           </p>
+
+          {taskDone ? (
+            <p className="mt-2 text-sm text-muted-foreground" role="status">
+              Marked “{completion.taskTitle}” done.
+            </p>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                Finished “{completion.taskTitle}”?
+              </p>
+              <Button
+                onClick={() => void onCompleteTask()}
+                size="sm"
+                variant="outline"
+              >
+                Mark task done
+              </Button>
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => setCompletionNotice(null)}>
-              Return to Today
+            <Button onClick={onReturnToday}>Return to Today</Button>
+            <Button onClick={onViewNextItems} variant="outline">
+              View next items
             </Button>
+            {undoAvailable ? (
+              <Button onClick={() => void onUndoCompletion()} variant="ghost">
+                Undo
+              </Button>
+            ) : null}
           </div>
+
+          {showNextItems ? (
+            <div className="mt-5 border-t pt-4">
+              <FocusNextItems
+                // Never re-offer the Task just stepped away from; if it was
+                // marked done it is already gone, and if not it should not lead
+                // the calm next decision.
+                items={excludeTask(nextItems, completion.taskId)}
+                locale={locale}
+                onFocusTask={onStart}
+                timeZone={timeZone}
+              />
+            </div>
+          ) : null}
         </div>
       ) : activeSession ? (
         <FocusSession
+          locale={locale}
           now={now}
-          onComplete={() => onCompleteSession(activeSession.id)}
+          onComplete={() => onCompleteSession(activeSession)}
           session={activeSession}
+          timeZone={timeZone}
         />
       ) : displayed === null ? (
         <div className="rounded-xl border bg-card p-6 text-card-foreground">
@@ -285,7 +460,7 @@ export function FocusNow({
         </div>
       )}
 
-      {!activeSession && !completionNotice && others.length > 0 ? (
+      {!activeSession && !completion && others.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-medium text-muted-foreground">
             Choose another task

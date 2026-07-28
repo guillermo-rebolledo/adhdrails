@@ -63,6 +63,29 @@ export function elapsedSeconds(state: FocusSessionState, now: string): number {
   return state.accumulatedSeconds + Math.max(0, delta);
 }
 
+/**
+ * Whether the count-up has reached the Task's optional estimate. An estimate is
+ * informational, so a Task without one never "reaches" anything. Reaching it is
+ * a cue to reassess calmly — never an overdue or failure state.
+ */
+export function hasReachedEstimate(
+  elapsedSecondsValue: number,
+  estimateMinutes: number | null,
+): boolean {
+  if (estimateMinutes === null || estimateMinutes <= 0) {
+    return false;
+  }
+  return elapsedSecondsValue >= estimateMinutes * 60;
+}
+
+/**
+ * The calm reassessment shown when a Focus Session passes its estimate. It never
+ * says overdue, late, or failed — an estimate is a guess, not a promise. It
+ * simply invites the user to keep going, take a break, or wrap up.
+ */
+export const FOCUS_ESTIMATE_REACHED_MESSAGE =
+  "You've reached your estimate — that's just a guess, not a deadline. Keep going, take a break, or wrap up whenever you're ready.";
+
 /** Whether `action` is legal for a session currently in `status`. */
 export function isFocusActionAllowed(
   status: FocusSessionStatus,
@@ -162,6 +185,10 @@ export const focusSessionTransitionRequestSchema = z.object({
   accumulatedSeconds: z.number().int().nonnegative(),
   lastResumedAt: z.string().nullable(),
   completedAt: z.string().nullable(),
+  // The captured-distraction total carried as absolute state, so a distraction
+  // captured during focus survives the same last-write-wins collapse as the
+  // timing fields rather than needing a separate mutation channel.
+  distractionCount: z.number().int().nonnegative(),
 });
 
 export type FocusSessionTransitionRequest = z.infer<
@@ -173,6 +200,7 @@ export function toTransitionRequest(
   state: FocusSessionState,
   baseVersion: number,
   idempotencyKey: string,
+  distractionCount: number,
 ): FocusSessionTransitionRequest {
   return {
     idempotencyKey,
@@ -181,6 +209,7 @@ export function toTransitionRequest(
     accumulatedSeconds: state.accumulatedSeconds,
     lastResumedAt: state.lastResumedAt,
     completedAt: state.completedAt,
+    distractionCount,
   };
 }
 
