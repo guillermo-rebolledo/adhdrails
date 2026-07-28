@@ -158,5 +158,44 @@ describe.skipIf(!connection)(
       expect(await jobRows("exp-owner")).toHaveLength(1);
       expect(await jobRows("exp-neighbor")).toHaveLength(1);
     });
+
+    it("purges resolved rows older than the cutoff, sparing recent and pending work", async () => {
+      const repo = repository();
+      // An old completed row, aged before the cutoff.
+      const old = await repo.enqueue({
+        userId: "exp-owner",
+        eventId: EVENT_ID,
+        operation: "upsert",
+      });
+      await repo.markProcessing(old.id);
+      await repo.markCompleted(old.id);
+      await connection!.database
+        .update(eventExportJob)
+        .set({ updatedAt: new Date("2026-01-01T00:00:00.000Z") })
+        .where(eq(eventExportJob.id, old.id));
+
+      // A recent skipped row and a still-pending row must survive.
+      const recent = await repo.enqueue({
+        userId: "exp-owner",
+        eventId: "22222222-2222-4222-8222-222222222222",
+        operation: "upsert",
+      });
+      await repo.markProcessing(recent.id);
+      await repo.markSkipped(recent.id, "no_writable_calendar");
+      const pending = await repo.enqueue({
+        userId: "exp-owner",
+        eventId: "33333333-3333-4333-8333-333333333333",
+        operation: "upsert",
+      });
+
+      const purged = await repo.purgeResolvedBefore(
+        new Date("2026-06-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(1);
+      expect(await repo.getById(old.id)).toBeNull();
+      expect(await repo.getById(recent.id)).not.toBeNull();
+      expect(await repo.getById(pending.id)).not.toBeNull();
+    });
   },
 );

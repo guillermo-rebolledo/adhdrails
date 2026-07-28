@@ -175,6 +175,64 @@ describe.skipIf(!connection)(
       expect(await mirrorRows(USER_IDS[0])).toHaveLength(1);
     });
 
+    it("trims mirror rows outside the window, sparing the window and local events", async () => {
+      const timeMin = new Date("2026-07-01T00:00:00.000Z");
+      const timeMax = new Date("2026-08-01T00:00:00.000Z");
+
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "at-min", startAt: timeMin.toISOString() }),
+      );
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({
+          googleEventId: "inside",
+          startAt: "2026-07-15T00:00:00.000Z",
+        }),
+      );
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "past", startAt: "2026-06-01T00:00:00.000Z" }),
+      );
+      await repository().upsertMirror(
+        USER_IDS[0],
+        // On/after timeMax is outside the half-open window.
+        mirror({ googleEventId: "at-max", startAt: timeMax.toISOString() }),
+      );
+      // A local app-owned Event outside the window must never be removed.
+      await repository().insert(
+        USER_IDS[0],
+        createInput({ startAt: "2026-09-01T00:00:00.000Z" }),
+      );
+
+      const removed = await repository().removeMirrorOutsideWindow(
+        USER_IDS[0],
+        timeMin,
+        timeMax,
+      );
+
+      expect(removed).toBe(2);
+      const remaining = await mirrorRows(USER_IDS[0]);
+      const ids = remaining.map((r) => r.googleEventId ?? "local").sort();
+      expect(ids).toEqual(["at-min", "inside", "local"]);
+    });
+
+    it("scopes mirror window trimming to the owning account", async () => {
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "past", startAt: "2026-06-01T00:00:00.000Z" }),
+      );
+
+      const removed = await repository().removeMirrorOutsideWindow(
+        USER_IDS[1],
+        new Date("2026-07-01T00:00:00.000Z"),
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+
+      expect(removed).toBe(0);
+      expect(await mirrorRows(USER_IDS[0])).toHaveLength(1);
+    });
+
     it("mirrors an all-day event with its date bounds", async () => {
       await repository().upsertMirror(
         USER_IDS[0],

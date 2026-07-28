@@ -5,6 +5,7 @@ import {
   MIRROR_WINDOW_FUTURE_MONTHS,
   MIRROR_WINDOW_PAST_DAYS,
   type GoogleEventResource,
+  expandedMirrorWindow,
   mapGoogleEvent,
   mirrorWindow,
 } from "./import";
@@ -44,6 +45,26 @@ describe("mirrorWindow", () => {
         Temporal.Instant.from(window.timeMax),
       ),
     ).toBe(-1);
+  });
+});
+
+describe("expandedMirrorWindow", () => {
+  const NOW = "2026-07-27T12:00:00.000Z";
+
+  it("stretches the future bound to reach a target past the default horizon", () => {
+    const through = "2028-01-01T00:00:00.000Z";
+    const window = expandedMirrorWindow(NOW, through);
+
+    // The past bound is untouched; the future bound extends to the target.
+    expect(window.timeMin).toBe(mirrorWindow(NOW).timeMin);
+    expect(window.timeMax).toBe(Temporal.Instant.from(through).toString());
+  });
+
+  it("preserves the default window when the target lies within it", () => {
+    const base = mirrorWindow(NOW);
+    const through = "2026-08-01T00:00:00.000Z";
+
+    expect(expandedMirrorWindow(NOW, through)).toEqual(base);
   });
 });
 

@@ -80,6 +80,12 @@ function inMemoryRepository() {
     async listVisibleCalendarSyncState() {
       return [];
     },
+    async listConnectedUserIds() {
+      return [];
+    },
+    async listCalendarsDueForReconciliation() {
+      return [];
+    },
     async saveWatch() {},
     async deleteConnection(userId) {
       connections.delete(userId);

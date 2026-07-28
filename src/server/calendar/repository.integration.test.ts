@@ -200,6 +200,77 @@ describe.skipIf(!connection)(
       ).toEqual([]);
     });
 
+    it("lists the ids of every connected account for a maintenance sweep", async () => {
+      for (const id of USER_IDS) {
+        await repository().saveConnection(id, {
+          status: "connected",
+          googleAccountId: null,
+          scope: "s",
+          encryptedRefreshToken: token,
+          primaryCalendarId: null,
+          primaryTimeZone: null,
+          calendars: [calendar()],
+        });
+      }
+
+      expect(await repository().listConnectedUserIds()).toEqual(
+        [...USER_IDS].sort(),
+      );
+    });
+
+    it("lists only stale or never-synced visible calendars as due for reconciliation", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: "recent",
+        primaryTimeZone: null,
+        calendars: [
+          calendar({ googleCalendarId: "recent", primary: true }),
+          calendar({
+            googleCalendarId: "stale",
+            isWritable: false,
+            primary: false,
+          }),
+          calendar({
+            googleCalendarId: "never",
+            isWritable: false,
+            primary: false,
+          }),
+          calendar({
+            googleCalendarId: "hidden",
+            isVisible: false,
+            isWritable: false,
+            primary: false,
+          }),
+        ],
+      });
+
+      const cutoff = new Date("2026-07-28T12:00:00.000Z");
+      // "recent" synced after the cutoff; "stale" and "hidden" well before it.
+      await repository().recordCalendarSync(USER_IDS[0], "recent", {
+        syncToken: "t",
+        lastSyncedAt: new Date("2026-07-28T12:30:00.000Z"),
+      });
+      await repository().recordCalendarSync(USER_IDS[0], "stale", {
+        syncToken: "t",
+        lastSyncedAt: new Date("2026-07-20T00:00:00.000Z"),
+      });
+      await repository().recordCalendarSync(USER_IDS[0], "hidden", {
+        syncToken: "t",
+        lastSyncedAt: new Date("2026-07-20T00:00:00.000Z"),
+      });
+
+      const due = await repository().listCalendarsDueForReconciliation(cutoff);
+
+      // Never-synced and stale visible calendars are due; recent and hidden are not.
+      expect(due).toEqual([
+        { userId: USER_IDS[0], googleCalendarId: "never" },
+        { userId: USER_IDS[0], googleCalendarId: "stale" },
+      ]);
+    });
+
     it("deletes the connection and its calendars without touching the user", async () => {
       await repository().saveConnection(USER_IDS[0], {
         status: "connected",

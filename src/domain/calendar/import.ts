@@ -47,6 +47,30 @@ export function mirrorWindow(nowIso: string): MirrorWindow {
   };
 }
 
+/**
+ * The default mirror window stretched forward to reach `throughIso` when the user
+ * browses past the default horizon (MEM-43 on-demand expansion). The past bound
+ * and the whole default window are preserved — the future bound only ever
+ * extends, never contracts — so expansion adds coverage without dropping any
+ * current agenda data. A `throughIso` already inside the default window returns
+ * the default window unchanged.
+ */
+export function expandedMirrorWindow(
+  nowIso: string,
+  throughIso: string,
+): MirrorWindow {
+  const base = mirrorWindow(nowIso);
+  const through = Temporal.Instant.from(throughIso);
+  const baseMax = Temporal.Instant.from(base.timeMax);
+  return {
+    timeMin: base.timeMin,
+    timeMax:
+      Temporal.Instant.compare(through, baseMax) > 0
+        ? through.toString()
+        : base.timeMax,
+  };
+}
+
 const googleEventDateTimeSchema = z.object({
   /** RFC3339 with offset for a timed event; absent for an all-day event. */
   dateTime: z.string().optional(),

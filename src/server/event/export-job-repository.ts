@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import type { EventExportOperation } from "@/domain/calendar/export";
 import type { Database } from "@/server/db/connection";
@@ -210,6 +210,26 @@ export function createEventExportJobRepository(database: Database) {
             eq(eventExportJob.status, "processing"),
           ),
         );
+    },
+
+    /**
+     * Purges resolved export rows (`completed`, `failed`, or `skipped`) last
+     * updated before `cutoff` (MEM-43 retention). Pending and processing rows are
+     * never touched, so no undelivered export is lost; only finished operational
+     * records are reclaimed. Returns the count removed.
+     */
+    async purgeResolvedBefore(cutoff: Date): Promise<number> {
+      const removed = await database
+        .delete(eventExportJob)
+        .where(
+          and(
+            inArray(eventExportJob.status, ["completed", "failed", "skipped"]),
+            lt(eventExportJob.updatedAt, cutoff),
+          ),
+        )
+        .returning({ id: eventExportJob.id });
+
+      return removed.length;
     },
   };
 }

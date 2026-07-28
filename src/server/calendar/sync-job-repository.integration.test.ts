@@ -108,5 +108,37 @@ describe.skipIf(!connection)(
         lastErrorCode: "unauthorized",
       });
     });
+
+    it("purges resolved rows older than the cutoff, sparing recent and pending work", async () => {
+      // An old completed row: resolved and aged before the cutoff.
+      const old = await repository().enqueue(
+        enqueueInput({ channelId: "chan-old", messageNumber: 1 }),
+      );
+      await repository().markProcessing(old.job.id);
+      await repository().markCompleted(old.job.id);
+      await connection!.database
+        .update(calendarSyncJob)
+        .set({ updatedAt: new Date("2026-01-01T00:00:00.000Z") })
+        .where(eq(calendarSyncJob.id, old.job.id));
+
+      // A recent completed row and a still-pending row must survive.
+      const recent = await repository().enqueue(
+        enqueueInput({ channelId: "chan-recent", messageNumber: 1 }),
+      );
+      await repository().markProcessing(recent.job.id);
+      await repository().markCompleted(recent.job.id);
+      const pending = await repository().enqueue(
+        enqueueInput({ channelId: "chan-pending", messageNumber: 1 }),
+      );
+
+      const purged = await repository().purgeResolvedBefore(
+        new Date("2026-06-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(1);
+      expect(await repository().getById(old.job.id)).toBeNull();
+      expect(await repository().getById(recent.job.id)).not.toBeNull();
+      expect(await repository().getById(pending.job.id)).not.toBeNull();
+    });
   },
 );

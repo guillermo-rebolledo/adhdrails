@@ -1,4 +1,5 @@
 import {
+  getCalendarMaintenanceService,
   getCalendarSyncDispatcher,
   getEventExportDispatcher,
   getEventExportJobRepository,
@@ -151,10 +152,114 @@ export const calendarExportOutboxDrain = inngest.createFunction(
   },
 );
 
+/**
+ * Scheduled watch renewal (MEM-43). Google stops delivering change notifications
+ * once a push channel expires, so this sweep renews every connected account's
+ * watches before they lapse. Renewal is idempotent — a comfortably fresh watch is
+ * left alone — so re-running is cheap, and one account's failure is isolated from
+ * the rest. `concurrency` caps it to one run at a time so overlapping schedules
+ * never stack; `retries` lets a transient failure re-run the whole idempotent
+ * sweep. Only safe metadata is logged.
+ */
+export const calendarWatchRenewal = inngest.createFunction(
+  {
+    id: "calendar-watch-renewal",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "0 */6 * * *" }],
+  },
+  async () => {
+    const result = await getCalendarMaintenanceService().renewWatches();
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "calendar.watch_renewal",
+      outcome: result.failures + result.reauth > 0 ? "failure" : "success",
+      safeCode:
+        result.reauth > 0
+          ? "needs_reauth"
+          : result.failures > 0
+            ? "partial_failure"
+            : undefined,
+    });
+
+    return result;
+  },
+);
+
+/**
+ * Scheduled reconciliation (MEM-43). A missed webhook or an expired watch leaves a
+ * calendar silently stale; this sweep resyncs every calendar that has gone quiet
+ * past the staleness cutoff. The incremental sync it runs is idempotent (upsert by
+ * provider identity, resume from the stored cursor), so reconciliation detects
+ * missed changes without duplicating synchronized Events, and a `410 Gone`
+ * recovers as a bounded full resync. One calendar's failure is isolated. Only safe
+ * metadata is logged.
+ */
+export const calendarReconciliation = inngest.createFunction(
+  {
+    id: "calendar-reconciliation",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "*/30 * * * *" }],
+  },
+  async () => {
+    const result = await getCalendarMaintenanceService().reconcile();
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "calendar.reconciled",
+      outcome: result.failures + result.reauth > 0 ? "failure" : "success",
+      safeCode:
+        result.reauth > 0
+          ? "needs_reauth"
+          : result.failures > 0
+            ? "partial_failure"
+            : undefined,
+    });
+
+    return result;
+  },
+);
+
+/**
+ * Scheduled mirror cleanup and retention purge (MEM-43). The mirror would grow
+ * without bound as time passes, and resolved outbox rows would accumulate
+ * indefinitely; this daily sweep trims every account's mirror back to the default
+ * window — preserving local Events and all current agenda data — and purges
+ * resolved sync/export records older than the retention window. Idempotent and
+ * safe to re-run; only safe metadata is logged.
+ */
+export const calendarMirrorCleanup = inngest.createFunction(
+  {
+    id: "calendar-mirror-cleanup",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "0 3 * * *" }],
+  },
+  async () => {
+    const service = getCalendarMaintenanceService();
+    const mirrors = await service.cleanupMirrors();
+    const purged = await service.purgeResolvedJobs();
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "calendar.mirror_cleaned",
+      outcome: mirrors.failures > 0 ? "failure" : "success",
+      safeCode: mirrors.failures > 0 ? "partial_failure" : undefined,
+    });
+
+    return { mirrors, purged };
+  },
+);
+
 /** All Inngest functions Rails serves. */
 export const inngestFunctions = [
   calendarIncrementalSync,
   calendarSyncOutboxDrain,
   calendarEventExport,
   calendarExportOutboxDrain,
+  calendarWatchRenewal,
+  calendarReconciliation,
+  calendarMirrorCleanup,
 ];

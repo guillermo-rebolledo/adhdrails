@@ -1,4 +1,8 @@
-import { mapGoogleEvent, mirrorWindow } from "@/domain/calendar/import";
+import {
+  expandedMirrorWindow,
+  mapGoogleEvent,
+  mirrorWindow,
+} from "@/domain/calendar/import";
 import type { EventRepository } from "@/server/event/repository";
 
 import {
@@ -27,6 +31,17 @@ export type IncrementalSyncResult =
       recovered: boolean;
       lastSyncedAt: string;
     }
+  | { ok: false; reason: "not_connected" }
+  | { ok: false; reason: "unauthorized" }
+  | { ok: false; reason: "calendar_not_found" };
+
+/**
+ * The outcome of an on-demand range expansion (MEM-43). Additive only — it never
+ * advances the cursor or the last-synced instant — so its result is just the
+ * counts, plus the same terminal reasons {@link IncrementalSyncResult} carries.
+ */
+export type ExpandWindowResult =
+  | { ok: true; changed: number; removed: number }
   | { ok: false; reason: "not_connected" }
   | { ok: false; reason: "unauthorized" }
   | { ok: false; reason: "calendar_not_found" };
@@ -242,6 +257,57 @@ export function createIncrementalSyncService(
         recovered,
         lastSyncedAt: syncedAt.toISOString(),
       };
+    },
+
+    /**
+     * On-demand range expansion (MEM-43): brings the mirror current over the
+     * default window stretched forward to `throughIso`, for when the user browses
+     * past the default 12-month horizon. It pages a bounded window read and
+     * upserts by provider identity, so it only ever adds or refreshes rows —
+     * current agenda data is never dropped. It deliberately leaves the incremental
+     * cursor and last-synced instant untouched: expansion is additive coverage,
+     * not a checkpoint, so ordinary incremental sync keeps resuming from where it
+     * left off.
+     */
+    async expandWindow(
+      userId: string,
+      googleCalendarId: string,
+      throughIso: string,
+    ): Promise<ExpandWindowResult> {
+      const connection = await calendarRepository.getConnection(userId);
+      if (!connection) {
+        return { ok: false, reason: "not_connected" };
+      }
+
+      const calendar = await calendarRepository.getCalendar(
+        userId,
+        googleCalendarId,
+      );
+      if (!calendar || !calendar.isVisible) {
+        return { ok: false, reason: "calendar_not_found" };
+      }
+
+      let accessToken: string;
+      try {
+        const refreshToken = cipher.decrypt(connection.encryptedRefreshToken);
+        const token = await adapter.refreshAccessToken({ refreshToken });
+        accessToken = token.accessToken;
+      } catch {
+        return { ok: false, reason: "unauthorized" };
+      }
+
+      const window = expandedMirrorWindow(now().toISOString(), throughIso);
+      const outcome = await pageThrough(userId, calendar, (pageToken) =>
+        adapter.listEvents({
+          accessToken,
+          calendarId: calendar.googleCalendarId,
+          timeMin: window.timeMin,
+          timeMax: window.timeMax,
+          pageToken,
+        }),
+      );
+
+      return { ok: true, changed: outcome.changed, removed: outcome.removed };
     },
   };
 }

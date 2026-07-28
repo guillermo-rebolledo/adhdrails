@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, isNotNull, max } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  lt,
+  max,
+  or,
+} from "drizzle-orm";
 
 import type {
   CalendarAccessRole,
@@ -423,6 +433,58 @@ export function createCalendarRepository(database: Database) {
         );
 
       return row?.latest ?? null;
+    },
+
+    /**
+     * Every account with a live Calendar connection, oldest account id first.
+     * Drives the periodic maintenance sweeps (MEM-43) — watch renewal and mirror
+     * cleanup — which iterate connected accounts rather than reacting to a single
+     * request.
+     */
+    async listConnectedUserIds(): Promise<string[]> {
+      const rows = await database
+        .select({ userId: calendarConnection.userId })
+        .from(calendarConnection)
+        .where(eq(calendarConnection.status, "connected"))
+        .orderBy(asc(calendarConnection.userId));
+
+      return rows.map((row) => row.userId);
+    },
+
+    /**
+     * The visible calendars of connected accounts that have not synced since
+     * `before` (never-synced calendars included). Drives periodic reconciliation
+     * (MEM-43): a calendar is only returned once its last successful sync has
+     * aged past the staleness cutoff, which happens when its watch expired or a
+     * notification was missed — exactly the calendars reconciliation must resync.
+     */
+    async listCalendarsDueForReconciliation(
+      before: Date,
+    ): Promise<{ userId: string; googleCalendarId: string }[]> {
+      return database
+        .select({
+          userId: calendarSelection.userId,
+          googleCalendarId: calendarSelection.googleCalendarId,
+        })
+        .from(calendarSelection)
+        .innerJoin(
+          calendarConnection,
+          eq(calendarConnection.userId, calendarSelection.userId),
+        )
+        .where(
+          and(
+            eq(calendarConnection.status, "connected"),
+            eq(calendarSelection.isVisible, true),
+            or(
+              isNull(calendarSelection.lastSyncedAt),
+              lt(calendarSelection.lastSyncedAt, before),
+            ),
+          ),
+        )
+        .orderBy(
+          asc(calendarSelection.userId),
+          asc(calendarSelection.googleCalendarId),
+        );
     },
 
     /** Deletes the connection and its calendar snapshot. Login is untouched. */
