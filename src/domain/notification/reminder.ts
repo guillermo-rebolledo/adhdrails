@@ -62,7 +62,8 @@ export interface DueTaskReminder {
   scheduledFor: string;
 }
 
-const DELIVERY_WINDOW_SECONDS = 60;
+const SCHEDULER_LOOKBACK_SECONDS = 5 * 60;
+const AT_TIME_CUE_SECONDS = 60;
 
 function taskScheduleInstant(
   task: ReminderTaskSchedule,
@@ -131,7 +132,7 @@ export function dueTaskReminders(
         Temporal.Instant.compare(now, instant) >= 0 &&
         Temporal.Instant.compare(
           now,
-          instant.add({ seconds: DELIVERY_WINDOW_SECONDS }),
+          instant.add({ seconds: SCHEDULER_LOOKBACK_SECONDS }),
         ) < 0,
     )
     .map(({ kind, instant }) => ({
@@ -167,7 +168,7 @@ export function isTaskCueDue(
     Temporal.Instant.compare(now, taskInstant) >= 0 &&
     Temporal.Instant.compare(
       now,
-      taskInstant.add({ seconds: DELIVERY_WINDOW_SECONDS }),
+      taskInstant.add({ seconds: AT_TIME_CUE_SECONDS }),
     ) < 0;
   return headsUp || atTime;
 }

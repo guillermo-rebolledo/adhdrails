@@ -3,23 +3,21 @@ import {
   pushSubscriptionSchema,
 } from "@/domain/notification/reminder";
 import { getAccountSummary } from "@/server/auth/session";
-import { getDatabase } from "@/server/db/connection";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
-import { createNotificationRepository } from "@/server/notification/repository";
+import type { NotificationService } from "@/server/notification/service";
+import { getNotificationService } from "@/server/notification/service-factory";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
-
-type Repository = ReturnType<typeof createNotificationRepository>;
 
 interface Dependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  getRepository: () => Repository;
+  getService: () => NotificationService;
   createCorrelationId: (request: Request) => string;
 }
 
 const dependencies: Dependencies = {
   getAccountSummary,
-  getRepository: () => createNotificationRepository(getDatabase()),
+  getService: getNotificationService,
   createCorrelationId: correlationIdFrom,
 };
 
@@ -37,7 +35,7 @@ export function createPushSubscriptionHandlers(deps: Dependencies) {
         parsed.error.flatten().fieldErrors,
       );
     }
-    await deps.getRepository().saveSubscription(account.userId, {
+    const id = await deps.getService().saveSubscription(account.userId, {
       id: parsed.data.id,
       endpoint: parsed.data.endpoint,
       expirationTime:
@@ -47,7 +45,7 @@ export function createPushSubscriptionHandlers(deps: Dependencies) {
       p256dh: parsed.data.keys.p256dh,
       auth: parsed.data.keys.auth,
     });
-    return jsonResponse({ ok: true }, correlationId, 201);
+    return jsonResponse({ id }, correlationId, 201);
   }
 
   async function DELETE(request: Request): Promise<Response> {
@@ -63,9 +61,7 @@ export function createPushSubscriptionHandlers(deps: Dependencies) {
         parsed.error.flatten().fieldErrors,
       );
     }
-    await deps
-      .getRepository()
-      .deleteSubscription(account.userId, parsed.data.id);
+    await deps.getService().removeSubscription(account.userId, parsed.data.id);
     return jsonResponse({ ok: true }, correlationId);
   }
 

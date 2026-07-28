@@ -150,8 +150,17 @@ export function createNotificationRepository(database: Database) {
     async saveSubscription(
       userId: string,
       subscription: PushSubscriptionInput,
-    ): Promise<void> {
-      const existing = await this.getSubscription(userId, subscription.id);
+    ): Promise<string> {
+      const [existing] = await database
+        .select({ id: pushSubscription.id })
+        .from(pushSubscription)
+        .where(
+          and(
+            eq(pushSubscription.userId, userId),
+            eq(pushSubscription.id, subscription.id),
+          ),
+        )
+        .limit(1);
       if (existing) {
         await database
           .update(pushSubscription)
@@ -168,13 +177,43 @@ export function createNotificationRepository(database: Database) {
               eq(pushSubscription.id, subscription.id),
             ),
           );
-        return;
+        return existing.id;
       }
 
-      await database
-        .insert(pushSubscription)
-        .values({ userId, ...subscription })
-        .onConflictDoNothing();
+      return database.transaction(async (transaction) => {
+        const [sameEndpoint] = await transaction
+          .select({
+            id: pushSubscription.id,
+            userId: pushSubscription.userId,
+          })
+          .from(pushSubscription)
+          .where(eq(pushSubscription.endpoint, subscription.endpoint))
+          .limit(1);
+
+        // A browser profile may change Rails accounts. Removing the prior
+        // subscription also cascades its old-account delivery history before
+        // the same provider endpoint is assigned to the current account.
+        if (sameEndpoint && sameEndpoint.userId !== userId) {
+          await transaction
+            .delete(pushSubscription)
+            .where(eq(pushSubscription.id, sameEndpoint.id));
+        }
+
+        const [saved] = await transaction
+          .insert(pushSubscription)
+          .values({ userId, ...subscription })
+          .onConflictDoUpdate({
+            target: pushSubscription.endpoint,
+            set: {
+              expirationTime: subscription.expirationTime,
+              p256dh: subscription.p256dh,
+              auth: subscription.auth,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({ id: pushSubscription.id });
+        return saved.id;
+      });
     },
 
     async deleteSubscription(userId: string, id: string): Promise<void> {
@@ -326,7 +365,7 @@ export function createNotificationRepository(database: Database) {
       return retried ?? null;
     },
 
-    async completeDelivery(id: string): Promise<void> {
+    async completeDelivery(userId: string, id: string): Promise<void> {
       await database
         .update(taskReminderDelivery)
         .set({
@@ -335,10 +374,16 @@ export function createNotificationRepository(database: Database) {
           lastErrorCode: null,
           updatedAt: new Date(),
         })
-        .where(eq(taskReminderDelivery.id, id));
+        .where(
+          and(
+            eq(taskReminderDelivery.userId, userId),
+            eq(taskReminderDelivery.id, id),
+          ),
+        );
     },
 
     async failDelivery(
+      userId: string,
       id: string,
       nextAttemptAt: Date,
       safeCode: string,
@@ -351,7 +396,12 @@ export function createNotificationRepository(database: Database) {
           lastErrorCode: safeCode,
           updatedAt: new Date(),
         })
-        .where(eq(taskReminderDelivery.id, id));
+        .where(
+          and(
+            eq(taskReminderDelivery.userId, userId),
+            eq(taskReminderDelivery.id, id),
+          ),
+        );
     },
   } satisfies ReminderDeliveryRepository & {
     getPreferences(userId: string): Promise<ReminderPreferences>;
@@ -366,6 +416,6 @@ export function createNotificationRepository(database: Database) {
     saveSubscription(
       userId: string,
       subscription: PushSubscriptionInput,
-    ): Promise<void>;
+    ): Promise<string>;
   };
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_REMINDER_PREFERENCES } from "@/domain/notification/reminder";
@@ -44,6 +45,7 @@ describe("NotificationSettings", () => {
   });
 
   it("requests permission only after the contextual enable action", async () => {
+    const user = userEvent.setup();
     const requestPermission = vi.fn().mockResolvedValue("denied");
     Object.defineProperty(window, "Notification", {
       configurable: true,
@@ -66,7 +68,7 @@ describe("NotificationSettings", () => {
     );
 
     expect(requestPermission).not.toHaveBeenCalled();
-    fireEvent.click(
+    await user.click(
       await screen.findByRole("button", {
         name: /turn on browser reminders/i,
       }),
@@ -79,6 +81,7 @@ describe("NotificationSettings", () => {
   });
 
   it("keeps an in-app fallback when saving fails offline", async () => {
+    const user = userEvent.setup();
     Object.defineProperty(window, "Notification", {
       configurable: true,
       value: { permission: "denied", requestPermission: vi.fn() },
@@ -100,7 +103,7 @@ describe("NotificationSettings", () => {
       />,
     );
 
-    fireEvent.click(
+    await user.click(
       await screen.findByRole("checkbox", { name: /in-app event cue/i }),
     );
 

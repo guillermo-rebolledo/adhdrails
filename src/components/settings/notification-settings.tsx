@@ -118,8 +118,11 @@ export function NotificationSettings({
       }),
     });
     if (!response.ok) throw new Error("subscription failed");
-    setSubscriptionId(id);
-    return id;
+    const saved = (await response.json()) as { id?: unknown };
+    if (typeof saved.id !== "string") throw new Error("subscription failed");
+    localStorage.setItem(SUBSCRIPTION_ID_KEY, saved.id);
+    setSubscriptionId(saved.id);
+    return saved.id;
   }
 
   async function enableBrowserReminders() {
@@ -326,16 +329,17 @@ export function NotificationSettings({
                 />
                 At-time reminder
               </label>
-              <Button
-                disabled={busy || !subscriptionId}
-                onClick={sendTest}
-                type="button"
-                variant="outline"
-              >
-                Send test notification
-              </Button>
             </>
           ) : null}
+
+          <Button
+            disabled={busy || !subscriptionId}
+            onClick={sendTest}
+            type="button"
+            variant="outline"
+          >
+            Send test notification
+          </Button>
 
           {subscriptionId ? (
             <div className="flex flex-wrap items-center gap-3 border-t pt-4">

@@ -19,15 +19,16 @@ function request(method: string, body: unknown) {
 
 describe("/api/v1/notifications/subscriptions", () => {
   it("stores and removes only the signed-in browser subscription", async () => {
-    const saveSubscription = vi.fn();
-    const deleteSubscription = vi.fn();
+    const saveSubscription = vi.fn().mockResolvedValue(ID);
+    const removeSubscription = vi.fn();
     const handlers = createPushSubscriptionHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user-1" }),
-      getRepository: () => ({ saveSubscription, deleteSubscription }) as never,
+      getService: () => ({ saveSubscription, removeSubscription }) as never,
       createCorrelationId: () => "cor_1",
     });
 
-    expect((await handlers.POST(request("POST", input))).status).toBe(201);
+    const createResponse = await handlers.POST(request("POST", input));
+    expect(createResponse.status).toBe(201);
     expect(saveSubscription).toHaveBeenCalledWith("user-1", {
       id: ID,
       endpoint: input.endpoint,
@@ -35,17 +36,18 @@ describe("/api/v1/notifications/subscriptions", () => {
       p256dh: "public-key",
       auth: "auth-secret",
     });
+    await expect(createResponse.json()).resolves.toEqual({ id: ID });
 
     expect((await handlers.DELETE(request("DELETE", { id: ID }))).status).toBe(
       200,
     );
-    expect(deleteSubscription).toHaveBeenCalledWith("user-1", ID);
+    expect(removeSubscription).toHaveBeenCalledWith("user-1", ID);
   });
 
   it("rejects malformed provider credentials", async () => {
     const handlers = createPushSubscriptionHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user-1" }),
-      getRepository: () => ({ saveSubscription: vi.fn() }) as never,
+      getService: () => ({ saveSubscription: vi.fn() }) as never,
       createCorrelationId: () => "cor_1",
     });
 

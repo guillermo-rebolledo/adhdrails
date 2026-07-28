@@ -9,7 +9,7 @@ import { getAccountSummary } from "@/server/auth/session";
 import { serializeConnection } from "@/server/calendar/http";
 import { getCalendarService } from "@/server/calendar/service-factory";
 import { webPushPublicKey } from "@/server/notification/env";
-import { getNotificationRepository } from "@/server/notification/service-factory";
+import { getNotificationService } from "@/server/notification/service-factory";
 
 export default async function SettingsPage() {
   const account = await getAccountSummary(await headers());
@@ -20,7 +20,7 @@ export default async function SettingsPage() {
 
   const [connection, reminderPreferences] = await Promise.all([
     getCalendarService().getConnection(account.userId),
-    getNotificationRepository().getPreferences(account.userId),
+    getNotificationService().getPreferences(account.userId),
   ]);
 
   return (

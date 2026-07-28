@@ -15,7 +15,7 @@ describe("/api/v1/notifications/preferences", () => {
   it("rejects unauthenticated reads and writes", async () => {
     const handlers = createNotificationPreferenceHandlers({
       getAccountSummary: vi.fn().mockResolvedValue(null),
-      getRepository: () => ({}) as never,
+      getService: () => ({}) as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -35,7 +35,7 @@ describe("/api/v1/notifications/preferences", () => {
     const savePreferences = vi.fn().mockResolvedValue(saved);
     const handlers = createNotificationPreferenceHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user-1" }),
-      getRepository: () => ({ getPreferences, savePreferences }) as never,
+      getService: () => ({ getPreferences, savePreferences }) as never,
       createCorrelationId: () => "cor_1",
     });
 
@@ -52,7 +52,7 @@ describe("/api/v1/notifications/preferences", () => {
   it("rejects an unsupported lead time", async () => {
     const handlers = createNotificationPreferenceHandlers({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "user-1" }),
-      getRepository: () => ({ savePreferences: vi.fn() }) as never,
+      getService: () => ({ savePreferences: vi.fn() }) as never,
       createCorrelationId: () => "cor_1",
     });
 

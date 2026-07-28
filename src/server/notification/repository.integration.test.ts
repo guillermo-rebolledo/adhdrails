@@ -76,6 +76,15 @@ describe.skipIf(!connection)(
         p256dh: "public-key",
         auth: "auth-secret",
       });
+      expect(
+        await repository.saveSubscription(USERS[0], {
+          id: "b2000000-0000-4000-8000-000000000002",
+          endpoint: "https://push.example/reminder-owner",
+          expirationTime: null,
+          p256dh: "rotated-public-key",
+          auth: "rotated-auth-secret",
+        }),
+      ).toBe(SUBSCRIPTION);
 
       expect(
         await repository.getSubscription(USERS[1], SUBSCRIPTION),
@@ -107,6 +116,7 @@ describe.skipIf(!connection)(
       expect(await repository.claimDelivery(input)).toBeNull();
 
       await repository.failDelivery(
+        USERS[0],
         first!.id,
         new Date("2026-08-04T12:52:30.000Z"),
         "push_unavailable",

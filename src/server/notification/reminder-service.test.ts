@@ -104,6 +104,7 @@ describe("ReminderDeliveryService", () => {
 
     expect(result).toEqual({ delivered: 0, expired: 0, failed: 1 });
     expect(repo.failDelivery).toHaveBeenCalledWith(
+      "user-1",
       "33333333-3333-4333-8333-333333333333",
       new Date("2026-08-04T12:52:30.000Z"),
       "push_unavailable",

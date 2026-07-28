@@ -45,8 +45,9 @@ export interface ReminderDeliveryRepository {
     scheduledFor: Date;
     now: Date;
   }): Promise<DeliveryClaim | null>;
-  completeDelivery(id: string): Promise<void>;
+  completeDelivery(userId: string, id: string): Promise<void>;
   failDelivery(
+    userId: string,
     id: string,
     nextAttemptAt: Date,
     safeCode: string,
@@ -135,10 +136,11 @@ export function createReminderDeliveryService(
           } else {
             result.delivered += 1;
           }
-          await repository.completeDelivery(claim.id);
+          await repository.completeDelivery(candidate.userId, claim.id);
         } catch {
           const retryMinutes = Math.min(2 ** claim.attempt, 30);
           await repository.failDelivery(
+            candidate.userId,
             claim.id,
             new Date(now.getTime() + retryMinutes * 60_000),
             "push_unavailable",

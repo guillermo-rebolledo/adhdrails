@@ -1,22 +1,20 @@
 import { reminderPreferencesSchema } from "@/domain/notification/reminder";
 import { getAccountSummary } from "@/server/auth/session";
-import { getDatabase } from "@/server/db/connection";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
-import { createNotificationRepository } from "@/server/notification/repository";
+import type { NotificationService } from "@/server/notification/service";
+import { getNotificationService } from "@/server/notification/service-factory";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
-
-type Repository = ReturnType<typeof createNotificationRepository>;
 
 interface Dependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  getRepository: () => Repository;
+  getService: () => NotificationService;
   createCorrelationId: (request: Request) => string;
 }
 
 const dependencies: Dependencies = {
   getAccountSummary,
-  getRepository: () => createNotificationRepository(getDatabase()),
+  getService: getNotificationService,
   createCorrelationId: correlationIdFrom,
 };
 
@@ -26,7 +24,7 @@ export function createNotificationPreferenceHandlers(deps: Dependencies) {
     const account = await deps.getAccountSummary(request.headers);
     if (!account) return unauthorizedProblem(correlationId);
     return jsonResponse(
-      await deps.getRepository().getPreferences(account.userId),
+      await deps.getService().getPreferences(account.userId),
       correlationId,
     );
   }
@@ -46,7 +44,7 @@ export function createNotificationPreferenceHandlers(deps: Dependencies) {
       );
     }
     return jsonResponse(
-      await deps.getRepository().savePreferences(account.userId, parsed.data),
+      await deps.getService().savePreferences(account.userId, parsed.data),
       correlationId,
     );
   }

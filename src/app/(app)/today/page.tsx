@@ -9,12 +9,12 @@ import { buttonVariants } from "@/components/ui/button";
 import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
 import { DEFAULT_REMINDER_PREFERENCES } from "@/domain/notification/reminder";
 import { getAccountSummary } from "@/server/auth/session";
-import { getNotificationRepository } from "@/server/notification/service-factory";
+import { getNotificationService } from "@/server/notification/service-factory";
 
 export default async function TodayPage() {
   const account = await getAccountSummary(await headers());
   const reminderPreferences = account
-    ? await getNotificationRepository().getPreferences(account.userId)
+    ? await getNotificationService().getPreferences(account.userId)
     : DEFAULT_REMINDER_PREFERENCES;
 
   return (

@@ -41,6 +41,27 @@ describe("dueTaskReminders", () => {
     ]);
   });
 
+  it("recovers a reminder on the next sweep when one scheduler tick was missed", () => {
+    expect(
+      dueTaskReminders(
+        {
+          id: "task-1",
+          scheduledDate: "2026-08-04",
+          scheduledTime: "09:00",
+        },
+        "America/New_York",
+        { ...DEFAULT_REMINDER_PREFERENCES, enabled: true },
+        "2026-08-04T12:51:30.000Z",
+      ),
+    ).toEqual([
+      {
+        kind: "heads_up",
+        scheduledFor: "2026-08-04T12:50:00Z",
+        taskId: "task-1",
+      },
+    ]);
+  });
+
   it("selects an at-time reminder independently", () => {
     expect(
       dueTaskReminders(
