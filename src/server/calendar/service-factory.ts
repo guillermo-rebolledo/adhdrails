@@ -37,6 +37,10 @@ import {
   createGoogleCalendarAuthAdapter,
   type GoogleCalendarAuthAdapter,
 } from "./google-adapter";
+import {
+  type CalendarMaintenanceService,
+  createCalendarMaintenanceService,
+} from "./maintenance-service";
 import { createCalendarRepository } from "./repository";
 import { type CalendarService, createCalendarService } from "./service";
 import {
@@ -202,5 +206,23 @@ export function getCalendarWatchService(): CalendarWatchService {
     adapter: resolveAdapter(),
     cipher: createTokenCipher(readCalendarTokenKeyring()),
     config: readCalendarWebhookConfig(),
+  });
+}
+
+/**
+ * Builds the maintenance service the scheduled Inngest sweeps run (MEM-43): watch
+ * renewal, reconciliation, mirror cleanup, retention purge, and on-demand
+ * expansion. It composes the same watch and incremental-sync services request
+ * handlers use, so the durable jobs and the request path share one code path.
+ */
+export function getCalendarMaintenanceService(): CalendarMaintenanceService {
+  const database = getDatabase();
+  return createCalendarMaintenanceService({
+    calendarRepository: createCalendarRepository(database),
+    eventRepository: createEventRepository(database),
+    syncJobRepository: createCalendarSyncJobRepository(database),
+    exportJobRepository: createEventExportJobRepository(database),
+    watchService: getCalendarWatchService(),
+    incrementalSyncService: getIncrementalSyncService(),
   });
 }

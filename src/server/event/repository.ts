@@ -334,6 +334,34 @@ export function createEventRepository(database: Database) {
     },
 
     /**
+     * Trims the mirror back to a window (MEM-43 cleanup): removes this account's
+     * Google-origin Events whose start falls before `timeMin` or on/after
+     * `timeMax`, so the mirror does not grow without bound as time passes. Only
+     * `origin` `google` rows are touched, so local app-owned Events are never
+     * removed; keeping the predicate on `[timeMin, timeMax)` means anything inside
+     * the preserved window — all current agenda data — stays. Returns the count
+     * removed.
+     */
+    async removeMirrorOutsideWindow(
+      userId: string,
+      timeMin: Date,
+      timeMax: Date,
+    ): Promise<number> {
+      const removed = await database
+        .delete(event)
+        .where(
+          and(
+            eq(event.userId, userId),
+            eq(event.origin, "google"),
+            or(lt(event.startAt, timeMin), gte(event.startAt, timeMax)),
+          ),
+        )
+        .returning({ id: event.id });
+
+      return removed.length;
+    },
+
+    /**
      * Deletes the Event, records a tombstone, and — when the Event was mirrored
      * to Google (it carries a provider identity) — enqueues a `delete` export
      * job, all in one transaction. The job captures the provider identity from

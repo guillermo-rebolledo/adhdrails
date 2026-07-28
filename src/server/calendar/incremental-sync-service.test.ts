@@ -320,3 +320,54 @@ describe("syncCalendar", () => {
     expect(evt.mirror.size).toBe(0);
   });
 });
+
+describe("expandWindow", () => {
+  const THROUGH = "2028-01-01T00:00:00.000Z";
+
+  it("upserts events over the expanded window without touching the cursor", async () => {
+    const { syncService, adapter, cal, evt } = service(syncRecord(), {
+      events: { [CAL]: [timedEvent("a", 9), timedEvent("b", 10)] },
+    });
+
+    const result = await syncService.expandWindow("user_1", CAL, THROUGH);
+
+    expect(result).toEqual({ ok: true, changed: 2, removed: 0 });
+    expect(evt.mirror.size).toBe(2);
+    // A windowed read is used (not the incremental cursor), reaching the target.
+    expect(adapter.eventsRequests[0].calendarId).toBe(CAL);
+    expect(new Date(adapter.eventsRequests[0].timeMax).toISOString()).toBe(
+      THROUGH,
+    );
+    expect(adapter.changesRequests).toHaveLength(0);
+    // Expansion is additive: it never advances the cursor or last-synced instant.
+    expect(cal.syncCalls).toHaveLength(0);
+  });
+
+  it("reports not_connected when there is no connection", async () => {
+    const cal = calendarRepository(syncRecord());
+    const evt = eventRepository();
+    const syncService = createIncrementalSyncService({
+      calendarRepository: {
+        ...cal.repository,
+        async getConnection() {
+          return null;
+        },
+      } as unknown as CalendarRepository,
+      eventRepository: evt.repository,
+      adapter: createFakeGoogleAdapter(),
+      cipher: cal.tokenCipher,
+      now: () => NOW,
+    });
+
+    expect(await syncService.expandWindow("user_1", CAL, THROUGH)).toEqual({
+      ok: false,
+      reason: "not_connected",
+    });
+  });
+
+  it("reports calendar_not_found when the calendar is missing", async () => {
+    expect(
+      await service(null).syncService.expandWindow("user_1", CAL, THROUGH),
+    ).toEqual({ ok: false, reason: "calendar_not_found" });
+  });
+});

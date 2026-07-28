@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import type { Database } from "@/server/db/connection";
 import { calendarSyncJob } from "@/server/db/schema";
@@ -149,6 +149,26 @@ export function createCalendarSyncJobRepository(database: Database) {
         .update(calendarSyncJob)
         .set({ status: "failed", lastErrorCode: code, updatedAt: new Date() })
         .where(eq(calendarSyncJob.id, id));
+    },
+
+    /**
+     * Purges resolved outbox rows (`completed` or `failed`) last updated before
+     * `cutoff` (MEM-43 retention). Pending and processing rows are never touched,
+     * so no in-flight or undelivered work is lost; only finished operational
+     * records are reclaimed. Returns the count removed.
+     */
+    async purgeResolvedBefore(cutoff: Date): Promise<number> {
+      const removed = await database
+        .delete(calendarSyncJob)
+        .where(
+          and(
+            inArray(calendarSyncJob.status, ["completed", "failed"]),
+            lt(calendarSyncJob.updatedAt, cutoff),
+          ),
+        )
+        .returning({ id: calendarSyncJob.id });
+
+      return removed.length;
     },
   };
 }
