@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -248,6 +249,60 @@ export const taskTombstone = pgTable("task_tombstone", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * The account's Focus Session. At most one may be active (running or paused) at a
+ * time, enforced by the partial unique index on `user_id` over non-completed
+ * rows; completion is terminal and the row is retained as minimal internal
+ * history for a future user dashboard. Elapsed time is `accumulated_seconds`
+ * (whole seconds folded from finished running segments) plus, while running, the
+ * live delta since `last_resumed_at`, so the timer stays correct across pause,
+ * navigation, and reopening on another device. The primary key is the
+ * client-generated UUID, so an offline session keeps its identity once it
+ * synchronizes; `version` and `idempotency_key` support safe retries and
+ * reviewable conflicts. `distraction_count` is carried for the low-distraction
+ * capture flow that builds on this session.
+ */
+export const focusSession = pgTable(
+  "focus_session",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("running"),
+    accumulatedSeconds: integer("accumulated_seconds").notNull().default(0),
+    lastResumedAt: timestamp("last_resumed_at", { withTimezone: true }),
+    distractionCount: integer("distraction_count").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    version: integer("version").notNull().default(1),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // The account-wide single-active invariant: at most one running-or-paused
+    // session per account, so a second device cannot open a competing timer.
+    uniqueIndex("focus_session_one_active_idx")
+      .on(table.userId)
+      .where(sql`status <> 'completed'`),
+    // History lookups for the future dashboard, resolved newest first.
+    index("focus_session_account_completed_idx").on(
+      table.userId,
+      table.completedAt,
+    ),
+  ],
+);
 
 /**
  * An Event owned by one account. Local timed Events are created in Rails without

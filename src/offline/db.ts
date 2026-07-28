@@ -1,6 +1,7 @@
 import Dexie, { type Table } from "dexie";
 
 import type { EventOrigin, EventStatus } from "@/domain/event/event";
+import type { FocusSessionStatus } from "@/domain/focus/session";
 import type { TaskEnergy, TaskStatus } from "@/domain/task/task";
 
 /**
@@ -97,6 +98,29 @@ export interface LocalEvent {
   syncState: SyncState;
 }
 
+/**
+ * The account's Focus Session as the client holds it. Exactly one is active
+ * (running or paused) at a time; completion is terminal. The client owns the
+ * count-up clock — elapsed time is `accumulatedSeconds` plus, while running, the
+ * live delta since `lastResumedAt` — so a focus action is acknowledged locally
+ * within the performance budget and the timer survives navigation and reopening.
+ * `version` tracks the last server-confirmed version so a transition can carry a
+ * correct base version; `syncState` surfaces a conflict when another device won.
+ */
+export interface LocalFocusSession {
+  id: string;
+  taskId: string;
+  status: FocusSessionStatus;
+  accumulatedSeconds: number;
+  lastResumedAt: string | null;
+  distractionCount: number;
+  startedAt: string;
+  completedAt: string | null;
+  version: number;
+  createdAt: string;
+  syncState: SyncState;
+}
+
 export interface LocalThought {
   id: string;
   title: string;
@@ -110,7 +134,13 @@ export interface LocalThought {
 }
 
 /** Which durable entity a table (and its outbox entries) belongs to. */
-export type SyncEntity = "inbox_item" | "task" | "thought" | "event" | "area";
+export type SyncEntity =
+  | "inbox_item"
+  | "task"
+  | "thought"
+  | "event"
+  | "area"
+  | "focus_session";
 
 export type OutboxOperation = "create" | "update" | "delete";
 export type OutboxStatus = "pending" | "failed";
@@ -141,6 +171,7 @@ export class RailsDatabase extends Dexie {
   thoughts!: Table<LocalThought, string>;
   events!: Table<LocalEvent, string>;
   areas!: Table<LocalArea, string>;
+  focusSessions!: Table<LocalFocusSession, string>;
   outbox!: Table<OutboxEntry, string>;
 
   constructor(name = "rails") {
@@ -228,6 +259,20 @@ export class RailsDatabase extends Dexie {
             task.areaId ??= null;
           });
       });
+    // The account's single Focus Session joins the replica so start/pause/
+    // resume/complete work offline and the count-up timer survives reopening.
+    // `status` is indexed so the one active (running or paused) session is found
+    // without scanning completed history.
+    this.version(9).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks:
+        "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
+      focusSessions: "id, status, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
   }
 }
 

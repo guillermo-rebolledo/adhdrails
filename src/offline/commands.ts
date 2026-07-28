@@ -14,6 +14,7 @@ import type {
   RailsDatabase,
 } from "./db";
 import { buildEventCreate } from "./event-commands";
+import { nextMutationSequence } from "./mutation-sequence";
 import { buildTaskCreate } from "./task-commands";
 
 export interface CaptureOptions {
@@ -22,13 +23,6 @@ export interface CaptureOptions {
   idempotencyKey?: string;
   outboxId?: string;
   now?: string;
-}
-
-let lastMutationSequence = 0;
-
-function nextMutationSequence(): number {
-  lastMutationSequence = Math.max(Date.now(), lastMutationSequence + 1);
-  return lastMutationSequence;
 }
 
 /**
