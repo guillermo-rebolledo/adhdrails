@@ -1,9 +1,13 @@
 import type { AvailableCalendar } from "@/domain/calendar/connection";
+import type { GoogleEventWriteBody } from "@/domain/calendar/export";
 import type { GoogleEventResource } from "@/domain/calendar/import";
 
 import {
   GoogleGoneError,
   type GoogleCalendarAuthAdapter,
+  type GoogleEventDelete,
+  type GoogleEventInsert,
+  type GoogleEventPatch,
   type GoogleTokenGrant,
   type GoogleWatchChannel,
   type GoogleWatchRequest,
@@ -31,6 +35,36 @@ export interface FakeGoogleAdapterOptions {
   nextSyncTokenFor?: (calendarId: string) => string;
   /** Expiry the fake watch reports; defaults to a far-future instant. */
   watchExpiration?: Date;
+  /**
+   * The Google id `insertEvent` assigns, given the calendar id and the count of
+   * inserts already recorded. Defaults to a deterministic `g-created-<n>`.
+   */
+  insertEventId?: (calendarId: string, index: number) => string;
+  /**
+   * When set, `insertEvent`/`patchEvent`/`deleteEvent` reject with this — used to
+   * simulate a transient Google write failure or a revoked grant.
+   */
+  writeError?: Error;
+}
+
+/** One recorded `insertEvent` call, with the id the fake assigned it. */
+export interface RecordedInsertRequest {
+  calendarId: string;
+  body: GoogleEventWriteBody;
+  googleEventId: string;
+}
+
+/** One recorded `patchEvent` call. */
+export interface RecordedPatchRequest {
+  calendarId: string;
+  googleEventId: string;
+  body: GoogleEventWriteBody;
+}
+
+/** One recorded `deleteEvent` call. */
+export interface RecordedDeleteRequest {
+  calendarId: string;
+  googleEventId: string;
 }
 
 /** One recorded `listEvents` call, so tests can assert the requested window. */
@@ -56,6 +90,9 @@ export interface FakeGoogleAdapter extends GoogleCalendarAuthAdapter {
   readonly changesRequests: RecordedChangesRequest[];
   readonly watchRequests: GoogleWatchRequest[];
   readonly stoppedChannels: { channelId: string; resourceId: string }[];
+  readonly insertRequests: RecordedInsertRequest[];
+  readonly patchRequests: RecordedPatchRequest[];
+  readonly deleteRequests: RecordedDeleteRequest[];
 }
 
 const DEFAULT_CALENDARS: AvailableCalendar[] = [
@@ -99,6 +136,9 @@ export function createFakeGoogleAdapter(
   const changesRequests: RecordedChangesRequest[] = [];
   const watchRequests: GoogleWatchRequest[] = [];
   const stoppedChannels: { channelId: string; resourceId: string }[] = [];
+  const insertRequests: RecordedInsertRequest[] = [];
+  const patchRequests: RecordedPatchRequest[] = [];
+  const deleteRequests: RecordedDeleteRequest[] = [];
 
   /** Slices a seeded event list into one page, mirroring `listEvents`. */
   function pageOf(all: GoogleEventResource[], pageToken?: string) {
@@ -122,6 +162,9 @@ export function createFakeGoogleAdapter(
     changesRequests,
     watchRequests,
     stoppedChannels,
+    insertRequests,
+    patchRequests,
+    deleteRequests,
 
     buildAuthorizationUrl({ state }) {
       authorizationStates.push(state);
@@ -190,6 +233,41 @@ export function createFakeGoogleAdapter(
           : (options.nextSyncTokenFor?.(calendarId) ??
             `sync-next-${calendarId}`),
       };
+    },
+
+    async insertEvent({
+      calendarId,
+      body,
+    }: GoogleEventInsert): Promise<{ googleEventId: string }> {
+      if (options.writeError) {
+        throw options.writeError;
+      }
+      const googleEventId =
+        options.insertEventId?.(calendarId, insertRequests.length) ??
+        `g-created-${insertRequests.length + 1}`;
+      insertRequests.push({ calendarId, body: { ...body }, googleEventId });
+      return { googleEventId };
+    },
+
+    async patchEvent({
+      calendarId,
+      googleEventId,
+      body,
+    }: GoogleEventPatch): Promise<void> {
+      if (options.writeError) {
+        throw options.writeError;
+      }
+      patchRequests.push({ calendarId, googleEventId, body: { ...body } });
+    },
+
+    async deleteEvent({
+      calendarId,
+      googleEventId,
+    }: GoogleEventDelete): Promise<void> {
+      if (options.writeError) {
+        throw options.writeError;
+      }
+      deleteRequests.push({ calendarId, googleEventId });
     },
 
     async watchEvents(input): Promise<GoogleWatchChannel> {

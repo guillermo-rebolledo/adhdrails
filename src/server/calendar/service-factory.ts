@@ -1,7 +1,21 @@
 import { inngest } from "@/server/inngest/client";
 import { getDatabase } from "@/server/db/connection";
+import { createEventExportJobRepository } from "@/server/event/export-job-repository";
 import { createEventRepository } from "@/server/event/repository";
 
+import {
+  createEventExportService,
+  type EventExportService,
+} from "./event-export-service";
+import {
+  createEventExportDispatcher,
+  createRecordingExportDispatcher,
+  type ExportJobDispatcher,
+} from "./export-dispatcher";
+import {
+  createExportLocalService,
+  type ExportLocalService,
+} from "./export-local-service";
 import {
   readCalendarTokenKeyring,
   readCalendarWebhookConfig,
@@ -83,6 +97,56 @@ function resolveDispatcher(): SyncJobDispatcher {
 /** The job dispatcher, for the scheduled outbox drain to redeliver pending work. */
 export function getCalendarSyncDispatcher(): SyncJobDispatcher {
   return resolveDispatcher();
+}
+
+/**
+ * The export dispatcher for the current runtime. Test runs record dispatches to a
+ * process singleton so the drain is driven deterministically without an Inngest
+ * dev server; every other runtime enqueues real Inngest events. The exporter
+ * itself is exercised directly in unit and integration tests, so a recording
+ * dispatcher in test loses no coverage.
+ */
+let recordingExportDispatcher: ReturnType<
+  typeof createRecordingExportDispatcher
+> | null = null;
+
+function resolveExportDispatcher(): ExportJobDispatcher {
+  if (process.env.APP_ENV === "test") {
+    recordingExportDispatcher ??= createRecordingExportDispatcher();
+    return recordingExportDispatcher;
+  }
+  return createEventExportDispatcher(inngest);
+}
+
+/** The export dispatcher, for the scheduled export drain to deliver pending work. */
+export function getEventExportDispatcher(): ExportJobDispatcher {
+  return resolveExportDispatcher();
+}
+
+/** The export outbox repository, for the Inngest exporter to advance job lifecycle. */
+export function getEventExportJobRepository() {
+  return createEventExportJobRepository(getDatabase());
+}
+
+/** Builds the Event export service the Inngest exporter runs (MEM-42). */
+export function getEventExportService(): EventExportService {
+  const database = getDatabase();
+  return createEventExportService({
+    calendarRepository: createCalendarRepository(database),
+    eventRepository: createEventRepository(database),
+    adapter: resolveAdapter(),
+    cipher: createTokenCipher(readCalendarTokenKeyring()),
+  });
+}
+
+/** Builds the explicit export-on-reconnect service (MEM-42, user story 93). */
+export function getExportLocalService(): ExportLocalService {
+  const database = getDatabase();
+  return createExportLocalService({
+    calendarRepository: createCalendarRepository(database),
+    eventRepository: createEventRepository(database),
+    exportJobRepository: createEventExportJobRepository(database),
+  });
 }
 
 /** Builds the request-time Calendar service with real (or test) dependencies. */

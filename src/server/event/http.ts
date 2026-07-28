@@ -8,6 +8,7 @@ import {
   conflictProblem,
   goneProblem,
   notFoundProblem,
+  recurringSeriesProblem,
   validationProblem,
 } from "@/server/http/problem";
 
@@ -64,5 +65,7 @@ export function eventUpdateFailureResponse(
       return notFoundProblem(correlationId, "This event no longer exists.");
     case "gone":
       return goneProblem(correlationId);
+    case "recurring_series":
+      return recurringSeriesProblem(correlationId);
   }
 }

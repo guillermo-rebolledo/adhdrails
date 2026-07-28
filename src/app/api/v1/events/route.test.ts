@@ -23,6 +23,8 @@ function record(overrides: Partial<EventRecord> = {}): EventRecord {
     recurrence: null,
     status: "confirmed",
     origin: "local",
+    googleCalendarId: null,
+    googleEventId: null,
     version: 1,
     idempotencyKey: KEY,
     createdAt: new Date("2026-07-20T10:00:00.000Z"),

@@ -3,6 +3,7 @@ import {
   CALENDAR_SCOPES,
   availableCalendarSchema,
 } from "@/domain/calendar/connection";
+import type { GoogleEventWriteBody } from "@/domain/calendar/export";
 import {
   type GoogleEventResource,
   googleEventResourceSchema,
@@ -32,6 +33,23 @@ export interface GoogleCalendarAuthAdapter {
    * {@link GoogleGoneError} so the caller can reset the calendar and resync.
    */
   listEventChanges(input: GoogleEventChangesQuery): Promise<GoogleEventsPage>;
+  /**
+   * Creates a timed Event on a calendar and returns Google's assigned id, which
+   * Rails writes back onto the local Event so the mirror sync recognizes it and
+   * never imports a duplicate (MEM-42).
+   */
+  insertEvent(input: GoogleEventInsert): Promise<{ googleEventId: string }>;
+  /**
+   * Applies Rails-owned fields to an existing Google Event. A `404`/`410` (the
+   * Event was deleted on Google) is a benign no-op: Google is authoritative, so
+   * there is nothing to update.
+   */
+  patchEvent(input: GoogleEventPatch): Promise<void>;
+  /**
+   * Deletes a Google Event. Idempotent: a `404`/`410` (already gone) resolves
+   * successfully so a retried or duplicated delete never fails.
+   */
+  deleteEvent(input: GoogleEventDelete): Promise<void>;
   /** Opens a push-notification channel on a calendar's events resource. */
   watchEvents(input: GoogleWatchRequest): Promise<GoogleWatchChannel>;
   /** Closes a previously opened notification channel. Best-effort. */
@@ -73,6 +91,28 @@ export interface GoogleEventChangesQuery {
   calendarId: string;
   syncToken: string;
   pageToken?: string;
+}
+
+/** Creates a new Event on a calendar. */
+export interface GoogleEventInsert {
+  accessToken: string;
+  calendarId: string;
+  body: GoogleEventWriteBody;
+}
+
+/** Applies Rails-owned fields to an existing Event, keyed by its Google id. */
+export interface GoogleEventPatch {
+  accessToken: string;
+  calendarId: string;
+  googleEventId: string;
+  body: GoogleEventWriteBody;
+}
+
+/** Deletes an Event from a calendar, keyed by its Google id. */
+export interface GoogleEventDelete {
+  accessToken: string;
+  calendarId: string;
+  googleEventId: string;
 }
 
 /** What Rails needs to open a push-notification channel on a calendar. */
@@ -326,6 +366,70 @@ export function createGoogleCalendarAuthAdapter(
       }
 
       return readEventsPage(fetchImpl, accessToken, calendarId, params);
+    },
+
+    async insertEvent({ accessToken, calendarId, body }) {
+      const response = await fetchImpl(
+        `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Google events insert failed (${response.status}).`);
+      }
+
+      const created = (await response.json()) as { id?: string };
+      if (!created.id) {
+        throw new Error("Google events insert response is missing an id.");
+      }
+      return { googleEventId: created.id };
+    },
+
+    async patchEvent({ accessToken, calendarId, googleEventId, body }) {
+      const response = await fetchImpl(
+        `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      // The Event was deleted on Google; it is authoritative, so there is
+      // nothing to update. Treat as a benign no-op rather than an error.
+      if (response.status === 404 || response.status === 410) {
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`Google events patch failed (${response.status}).`);
+      }
+    },
+
+    async deleteEvent({ accessToken, calendarId, googleEventId }) {
+      const response = await fetchImpl(
+        `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
+        {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${accessToken}` },
+        },
+      );
+
+      // Already gone: a duplicated or retried delete is a no-op, so `404`/`410`
+      // resolve successfully and keep deletion idempotent.
+      if (response.ok || response.status === 404 || response.status === 410) {
+        return;
+      }
+      throw new Error(`Google events delete failed (${response.status}).`);
     },
 
     async watchEvents({
