@@ -352,8 +352,11 @@ export const event = pgTable(
     // Drives the weekly agenda and the cursor-paged Later list: scan an
     // account's Events in start order with a stable (start_at, id) tie-break.
     index("event_account_start_idx").on(table.userId, table.startAt, table.id),
-    // One mirror per Google (calendar, event) pair prevents duplication.
-    uniqueIndex("event_google_identity_idx").on(
+    // One mirror per account per Google (calendar, event) pair prevents
+    // duplication. Scoping by account keeps two users who share a Google
+    // calendar from colliding on the same provider identity.
+    uniqueIndex("event_account_google_identity_idx").on(
+      table.userId,
       table.googleCalendarId,
       table.googleEventId,
     ),
@@ -470,6 +473,13 @@ export const calendarSelection = pgTable(
     isPrimary: boolean("is_primary").notNull().default(false),
     isVisible: boolean("is_visible").notNull().default(true),
     isWritable: boolean("is_writable").notNull().default(false),
+    // Per-calendar import bookkeeping. `sync_token` is Google's opaque cursor
+    // captured on the final import page, so the incremental sync (MEM-41) can
+    // resume from exactly where the initial mirror ended; `last_synced_at`
+    // records when the mirror last reflected this calendar and drives the
+    // agenda's last-synchronized cue.
+    syncToken: text("sync_token"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

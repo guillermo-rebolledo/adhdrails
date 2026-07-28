@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createGoogleCalendarAuthAdapter } from "./google-adapter";
+import {
+  GoogleGoneError,
+  createGoogleCalendarAuthAdapter,
+} from "./google-adapter";
 import type { GoogleOAuthConfig } from "./env";
 
 const config: GoogleOAuthConfig = {
@@ -104,6 +107,109 @@ describe("listCalendars", () => {
       timeZone: null,
       primary: false,
     });
+  });
+});
+
+describe("refreshAccessToken", () => {
+  it("exchanges a refresh token for a fresh access token", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ access_token: "fresh-at", expires_in: 3600 }),
+      );
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    const token = await adapter.refreshAccessToken({ refreshToken: "rt" });
+
+    expect(token.accessToken).toBe("fresh-at");
+    expect(token.accessTokenExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    const [, init] = fetchImpl.mock.calls[0];
+    expect((init.body as URLSearchParams).get("grant_type")).toBe(
+      "refresh_token",
+    );
+  });
+
+  it("throws when the refresh fails", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 400 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.refreshAccessToken({ refreshToken: "rt" }),
+    ).rejects.toThrow(/refresh/);
+  });
+});
+
+describe("listEvents", () => {
+  it("requests expanded instances with deletions over the window and parses items", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: "evt-1",
+            status: "confirmed",
+            summary: "Standup",
+            start: { dateTime: "2026-07-27T09:00:00-04:00" },
+            end: { dateTime: "2026-07-27T09:30:00-04:00" },
+          },
+          { id: "evt-2", status: "cancelled" },
+          { notAnEvent: true },
+        ],
+        nextPageToken: "page-2",
+      }),
+    );
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    const page = await adapter.listEvents({
+      accessToken: "at",
+      calendarId: "team@group.calendar.google.com",
+      timeMin: "2026-06-27T00:00:00Z",
+      timeMax: "2027-07-27T00:00:00Z",
+    });
+
+    expect(page.events).toHaveLength(2);
+    expect(page.nextPageToken).toBe("page-2");
+    expect(page.nextSyncToken).toBeNull();
+
+    const [url] = fetchImpl.mock.calls[0];
+    expect(url).toContain("calendars/team%40group.calendar.google.com/events");
+    expect(url).toContain("singleEvents=true");
+    expect(url).toContain("showDeleted=true");
+    expect(url).toContain("timeMin=");
+  });
+
+  it("returns the sync token on the final page", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ items: [], nextSyncToken: "sync-1" }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    const page = await adapter.listEvents({
+      accessToken: "at",
+      calendarId: "primary@example.com",
+      timeMin: "2026-06-27T00:00:00Z",
+      timeMax: "2027-07-27T00:00:00Z",
+    });
+
+    expect(page.nextPageToken).toBeNull();
+    expect(page.nextSyncToken).toBe("sync-1");
+  });
+
+  it("raises a typed error on 410 Gone", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 410 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.listEvents({
+        accessToken: "at",
+        calendarId: "primary@example.com",
+        timeMin: "2026-06-27T00:00:00Z",
+        timeMax: "2027-07-27T00:00:00Z",
+      }),
+    ).rejects.toBeInstanceOf(GoogleGoneError);
   });
 });
 

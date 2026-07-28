@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, gte, lt, or } from "drizzle-orm";
 
+import type { MirrorEvent } from "@/domain/calendar/import";
 import type { EventCreateRequest, EventPatch } from "@/domain/event/event";
 import type { EventCursor } from "@/domain/calendar/later";
 import type { Database } from "@/server/db/connection";
@@ -143,6 +144,70 @@ export function createEventRepository(database: Database) {
         .returning(recordColumns);
 
       return row;
+    },
+
+    /**
+     * Inserts or refreshes the mirror row for one Google event, keyed by the
+     * account-scoped provider identity `(user_id, google_calendar_id,
+     * google_event_id)`. A re-delivered event therefore updates the existing
+     * mirror in place instead of creating a duplicate, satisfying the import's
+     * idempotency guarantee. Google stays authoritative, so `origin` is fixed to
+     * `google` and the mutable fields are overwritten from the incoming mirror.
+     */
+    async upsertMirror(userId: string, mirror: MirrorEvent): Promise<void> {
+      const now = new Date();
+      const mutable = {
+        title: mirror.title,
+        startAt: new Date(mirror.startAt),
+        endAt: new Date(mirror.endAt),
+        startTimeZone: mirror.startTimeZone,
+        endTimeZone: mirror.endTimeZone,
+        isAllDay: mirror.isAllDay,
+        allDayStartDate: mirror.allDayStartDate,
+        allDayEndDate: mirror.allDayEndDate,
+        recurringEventId: mirror.recurringEventId,
+        recurrence: mirror.recurrence,
+        status: mirror.status,
+        updatedAt: now,
+      };
+
+      await database
+        .insert(event)
+        .values({
+          id: crypto.randomUUID(),
+          userId,
+          origin: "google",
+          googleCalendarId: mirror.googleCalendarId,
+          googleEventId: mirror.googleEventId,
+          idempotencyKey: crypto.randomUUID(),
+          createdAt: now,
+          ...mutable,
+        })
+        .onConflictDoUpdate({
+          target: [event.userId, event.googleCalendarId, event.googleEventId],
+          set: mutable,
+        });
+    },
+
+    /**
+     * Removes the mirror row for a Google event Google now reports as gone
+     * (cancelled or deleted). Idempotent: deleting a row that never existed is a
+     * no-op, so a cancellation delivered before any import is harmless.
+     */
+    async removeMirror(
+      userId: string,
+      googleCalendarId: string,
+      googleEventId: string,
+    ): Promise<void> {
+      await database
+        .delete(event)
+        .where(
+          and(
+            eq(event.userId, userId),
+            eq(event.googleCalendarId, googleCalendarId),
+            eq(event.googleEventId, googleEventId),
+          ),
+        );
     },
 
     /** Deletes the Event and records a tombstone in one transaction. */

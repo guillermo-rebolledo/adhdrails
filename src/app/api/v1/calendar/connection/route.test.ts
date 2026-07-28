@@ -13,6 +13,7 @@ function connection(
     primaryCalendarId: "primary@example.com",
     primaryTimeZone: "America/New_York",
     connectedAt: "2026-07-27T12:00:00.000Z",
+    lastSyncedAt: null,
     calendars: [
       {
         googleCalendarId: "primary@example.com",

@@ -84,6 +84,7 @@ try {
       "src/server/task/repository.integration.test.ts",
       "src/server/focus/repository.integration.test.ts",
       "src/server/calendar/repository.integration.test.ts",
+      "src/server/event/repository.integration.test.ts",
     ],
     environment,
   );

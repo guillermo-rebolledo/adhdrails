@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, max } from "drizzle-orm";
 
 import type {
   CalendarAccessRole,
@@ -213,6 +213,50 @@ export function createCalendarRepository(database: Database) {
           await applyOne(tx, selection);
         }
       });
+    },
+
+    /**
+     * Records the outcome of importing one calendar: the opaque Google sync
+     * cursor to resume from and the instant the mirror last reflected it. Keyed
+     * by the account and calendar, so it never touches another account's rows.
+     */
+    async recordCalendarSync(
+      userId: string,
+      googleCalendarId: string,
+      input: { syncToken: string | null; lastSyncedAt: Date },
+    ): Promise<void> {
+      await database
+        .update(calendarSelection)
+        .set({
+          syncToken: input.syncToken,
+          lastSyncedAt: input.lastSyncedAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.googleCalendarId, googleCalendarId),
+          ),
+        );
+    },
+
+    /**
+     * The most recent instant any of the account's calendars was synchronized,
+     * or null before the first import. Drives the connection-level
+     * last-synchronized cue the agenda shows.
+     */
+    async latestSyncAt(userId: string): Promise<Date | null> {
+      const [row] = await database
+        .select({ latest: max(calendarSelection.lastSyncedAt) })
+        .from(calendarSelection)
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            isNotNull(calendarSelection.lastSyncedAt),
+          ),
+        );
+
+      return row?.latest ?? null;
     },
 
     /** Deletes the connection and its calendar snapshot. Login is untouched. */

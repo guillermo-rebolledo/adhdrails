@@ -7,7 +7,8 @@ export type ProblemCode =
   | "validation_failed"
   | "conflict"
   | "not_found"
-  | "gone";
+  | "gone"
+  | "calendar_reauth_required";
 
 export interface ProblemDetails {
   type: `https://rails.app/problems/${string}`;
@@ -119,6 +120,23 @@ export function accountNotFoundProblem(correlationId: string): Response {
     status: 404,
     code: "not_found",
     detail: "The signed-in account no longer exists.",
+    correlationId,
+    retryable: false,
+  });
+}
+
+/**
+ * The account is signed in but Google Calendar can no longer be reached with the
+ * stored grant, so it must be reconnected. Distinct from `unauthorized`, which
+ * concerns the Rails session itself; login and local data remain intact.
+ */
+export function calendarReauthProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/calendar-reauth-required",
+    title: "Reconnect Google Calendar",
+    status: 403,
+    code: "calendar_reauth_required",
+    detail: "Google Calendar access needs to be reconnected.",
     correlationId,
     retryable: false,
   });

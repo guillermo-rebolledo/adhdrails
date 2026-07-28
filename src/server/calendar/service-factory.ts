@@ -1,6 +1,11 @@
 import { getDatabase } from "@/server/db/connection";
+import { createEventRepository } from "@/server/event/repository";
 
 import { readCalendarTokenKeyring, readGoogleOAuthConfig } from "./env";
+import {
+  type CalendarImportService,
+  createCalendarImportService,
+} from "./import-service";
 import {
   createFakeGoogleAdapter,
   type FakeGoogleAdapter,
@@ -34,6 +39,17 @@ function resolveAdapter(): GoogleCalendarAuthAdapter {
 export function getCalendarService(): CalendarService {
   return createCalendarService({
     repository: createCalendarRepository(getDatabase()),
+    adapter: resolveAdapter(),
+    cipher: createTokenCipher(readCalendarTokenKeyring()),
+  });
+}
+
+/** Builds the request-time Calendar import service (MEM-40 initial mirror). */
+export function getCalendarImportService(): CalendarImportService {
+  const database = getDatabase();
+  return createCalendarImportService({
+    calendarRepository: createCalendarRepository(database),
+    eventRepository: createEventRepository(database),
     adapter: resolveAdapter(),
     cipher: createTokenCipher(readCalendarTokenKeyring()),
   });
