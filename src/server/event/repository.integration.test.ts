@@ -122,6 +122,40 @@ describe.skipIf(!connection)(
       expect(await mirrorRows(USER_IDS[0])).toHaveLength(1);
     });
 
+    it("clears one calendar's mirror for 410 recovery, sparing others", async () => {
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "a", googleCalendarId: "primary@example.com" }),
+      );
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "b", googleCalendarId: "primary@example.com" }),
+      );
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({ googleEventId: "c", googleCalendarId: "other@example.com" }),
+      );
+
+      await repository().removeMirrorForCalendar(
+        USER_IDS[0],
+        "primary@example.com",
+      );
+
+      const rows = await mirrorRows(USER_IDS[0]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].googleCalendarId).toBe("other@example.com");
+    });
+
+    it("scopes calendar-wide mirror clearing to the owning account", async () => {
+      await repository().upsertMirror(USER_IDS[0], mirror());
+      await repository().removeMirrorForCalendar(
+        USER_IDS[1],
+        "primary@example.com",
+      );
+
+      expect(await mirrorRows(USER_IDS[0])).toHaveLength(1);
+    });
+
     it("mirrors an all-day event with its date bounds", async () => {
       await repository().upsertMirror(
         USER_IDS[0],

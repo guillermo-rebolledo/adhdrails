@@ -68,6 +68,16 @@ function inMemoryRepository() {
       }
       return [...forUser.values()].reduce((a, b) => (a > b ? a : b));
     },
+    async getCalendar() {
+      return null;
+    },
+    async getCalendarByChannel() {
+      return null;
+    },
+    async listVisibleCalendarSyncState() {
+      return [];
+    },
+    async saveWatch() {},
     async deleteConnection(userId) {
       connections.delete(userId);
       calendars.delete(userId);

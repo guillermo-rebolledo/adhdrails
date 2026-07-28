@@ -1,6 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import {
@@ -24,11 +28,23 @@ import { mirrorStatusLabel } from "./mirror-status";
  * Builds the query function that imports the Google mirror and hydrates one
  * week window into Dexie. `db` is passed in (not closed over from the hook) so
  * the query key alone — which carries `db.name` — identifies the cache entry.
+ * Only when the sync actually changed the mirror does it invalidate the Later
+ * list — the one *other* view that reads the mirror — so incremental changes
+ * beyond the current week converge without churning that list on a no-op sync
+ * (which would fight its Load-more pagination). Task views are deliberately left
+ * untouched: a Calendar sync never affects them.
  */
-function loadMirror(db: RailsDatabase, window: EventWindow) {
+function loadMirror(
+  db: RailsDatabase,
+  window: EventWindow,
+  queryClient: QueryClient,
+) {
   return async () => {
     const result = await syncCalendarMirror();
     await fetchEventWindow(db, window);
+    if (result && (result.imported > 0 || result.removed > 0)) {
+      await queryClient.invalidateQueries({ queryKey: ["events"] });
+    }
     return result;
   };
 }
@@ -52,6 +68,7 @@ export function WeeklyAgenda({
   locale: string;
 }) {
   const { db } = useOffline();
+  const queryClient = useQueryClient();
   const bounds = weekBounds(reference, timeZone);
 
   // Import the Google mirror, then hydrate this week's window into Dexie so the
@@ -60,7 +77,11 @@ export function WeeklyAgenda({
   // the locally-owned Events already rendered from Dexie.
   const mirror = useQuery({
     queryKey: ["calendar", "mirror", db.name, bounds.startAt, bounds.endAt],
-    queryFn: loadMirror(db, { from: bounds.startAt, to: bounds.endAt }),
+    queryFn: loadMirror(
+      db,
+      { from: bounds.startAt, to: bounds.endAt },
+      queryClient,
+    ),
     staleTime: 60_000,
     retry: false,
   });

@@ -26,6 +26,20 @@ export interface GoogleCalendarAuthAdapter {
     refreshToken: string;
   }): Promise<GoogleAccessToken>;
   listEvents(input: GoogleEventsQuery): Promise<GoogleEventsPage>;
+  /**
+   * Reads the changes since a stored sync token — the incremental counterpart to
+   * {@link listEvents}. A `410 Gone` (the sync horizon expired) surfaces as
+   * {@link GoogleGoneError} so the caller can reset the calendar and resync.
+   */
+  listEventChanges(input: GoogleEventChangesQuery): Promise<GoogleEventsPage>;
+  /** Opens a push-notification channel on a calendar's events resource. */
+  watchEvents(input: GoogleWatchRequest): Promise<GoogleWatchChannel>;
+  /** Closes a previously opened notification channel. Best-effort. */
+  stopChannel(input: {
+    accessToken: string;
+    channelId: string;
+    resourceId: string;
+  }): Promise<void>;
   revoke(input: { token: string }): Promise<void>;
 }
 
@@ -51,6 +65,36 @@ export interface GoogleEventsQuery {
   timeMin: string;
   timeMax: string;
   pageToken?: string;
+}
+
+/** One paginated read of the changes since a stored sync token. */
+export interface GoogleEventChangesQuery {
+  accessToken: string;
+  calendarId: string;
+  syncToken: string;
+  pageToken?: string;
+}
+
+/** What Rails needs to open a push-notification channel on a calendar. */
+export interface GoogleWatchRequest {
+  accessToken: string;
+  calendarId: string;
+  /** The channel id Rails generated; echoed back on every notification. */
+  channelId: string;
+  /** The opaque verification token a notification must present. */
+  token: string;
+  /** The absolute HTTPS webhook URL Google should POST notifications to. */
+  address: string;
+  /** Requested channel lifetime; Google may shorten it. */
+  ttlSeconds?: number;
+}
+
+/** The channel Google opened, as Rails stores it. */
+export interface GoogleWatchChannel {
+  channelId: string;
+  resourceId: string;
+  /** When Google will stop delivering, or null if it did not say. */
+  expiration: Date | null;
 }
 
 /**
@@ -86,6 +130,51 @@ const CALENDAR_LIST_ENDPOINT =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const CALENDAR_EVENTS_ENDPOINT =
   "https://www.googleapis.com/calendar/v3/calendars";
+const CHANNELS_STOP_ENDPOINT =
+  "https://www.googleapis.com/calendar/v3/channels/stop";
+
+/**
+ * Fetches and parses one `events.list` page, shared by the windowed import and
+ * the incremental change read. A `410 Gone` — the requested horizon or sync
+ * token has expired — surfaces as {@link GoogleGoneError}; unparseable items are
+ * skipped defensively rather than aborting the page.
+ */
+async function readEventsPage(
+  fetchImpl: typeof fetch,
+  accessToken: string,
+  calendarId: string,
+  params: URLSearchParams,
+): Promise<GoogleEventsPage> {
+  const response = await fetchImpl(
+    `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+
+  if (response.status === 410) {
+    // The sync horizon is gone; the caller resets this calendar's cursor.
+    throw new GoogleGoneError(calendarId);
+  }
+  if (!response.ok) {
+    throw new Error(`Google events list failed (${response.status}).`);
+  }
+
+  const body = (await response.json()) as {
+    items?: unknown[];
+    nextPageToken?: string;
+    nextSyncToken?: string;
+  };
+
+  const events = (body.items ?? []).flatMap((item) => {
+    const parsed = googleEventResourceSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+
+  return {
+    events,
+    nextPageToken: body.nextPageToken ?? null,
+    nextSyncToken: body.nextSyncToken ?? null,
+  };
+}
 
 interface GoogleCalendarListEntry {
   id: string;
@@ -218,35 +307,90 @@ export function createGoogleCalendarAuthAdapter(
         params.set("pageToken", pageToken);
       }
 
+      return readEventsPage(fetchImpl, accessToken, calendarId, params);
+    },
+
+    async listEventChanges({ accessToken, calendarId, syncToken, pageToken }) {
+      // An incremental read passes only the sync token — never timeMin/timeMax,
+      // which Google rejects alongside a sync token. `singleEvents`/`showDeleted`
+      // must match the initial import so instances and cancellations keep
+      // arriving; the cursor advances on the final page's `nextSyncToken`.
+      const params = new URLSearchParams({
+        syncToken,
+        singleEvents: "true",
+        showDeleted: "true",
+        maxResults: String(EVENTS_PAGE_SIZE),
+      });
+      if (pageToken) {
+        params.set("pageToken", pageToken);
+      }
+
+      return readEventsPage(fetchImpl, accessToken, calendarId, params);
+    },
+
+    async watchEvents({
+      accessToken,
+      calendarId,
+      channelId,
+      token,
+      address,
+      ttlSeconds,
+    }) {
       const response = await fetchImpl(
-        `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
-        { headers: { authorization: `Bearer ${accessToken}` } },
+        `${CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(calendarId)}/events/watch`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            id: channelId,
+            type: "web_hook",
+            address,
+            token,
+            ...(ttlSeconds
+              ? { params: { ttl: String(ttlSeconds) } }
+              : undefined),
+          }),
+        },
       );
 
-      if (response.status === 410) {
-        // The sync horizon is gone; the caller resets this calendar's cursor.
-        throw new GoogleGoneError(calendarId);
-      }
       if (!response.ok) {
-        throw new Error(`Google events list failed (${response.status}).`);
+        throw new Error(`Google events watch failed (${response.status}).`);
       }
 
       const body = (await response.json()) as {
-        items?: unknown[];
-        nextPageToken?: string;
-        nextSyncToken?: string;
+        resourceId?: string;
+        expiration?: string;
       };
+      if (!body.resourceId) {
+        throw new Error("Google watch response is missing a resource id.");
+      }
 
-      const events = (body.items ?? []).flatMap((item) => {
-        const parsed = googleEventResourceSchema.safeParse(item);
-        return parsed.success ? [parsed.data] : [];
-      });
-
+      const expirationMs = body.expiration
+        ? Number.parseInt(body.expiration, 10)
+        : Number.NaN;
       return {
-        events,
-        nextPageToken: body.nextPageToken ?? null,
-        nextSyncToken: body.nextSyncToken ?? null,
+        channelId,
+        resourceId: body.resourceId,
+        expiration: Number.isFinite(expirationMs)
+          ? new Date(expirationMs)
+          : null,
       };
+    },
+
+    async stopChannel({ accessToken, channelId, resourceId }) {
+      // Best-effort: an already-expired channel still leaves Rails free to drop
+      // its stored watch, so a non-2xx response is swallowed.
+      await fetchImpl(CHANNELS_STOP_ENDPOINT, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ id: channelId, resourceId }),
+      }).catch(() => undefined);
     },
 
     async listCalendars({ accessToken }) {

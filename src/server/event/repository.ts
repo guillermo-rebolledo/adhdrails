@@ -210,6 +210,26 @@ export function createEventRepository(database: Database) {
         );
     },
 
+    /**
+     * Removes every mirror row for one Google calendar. Used for `410 Gone`
+     * recovery: the sync horizon expired, so the affected calendar's mirror is
+     * cleared before a bounded full resynchronization rebuilds it. Local Events
+     * (origin `local`) never carry a `google_calendar_id`, so they are untouched.
+     */
+    async removeMirrorForCalendar(
+      userId: string,
+      googleCalendarId: string,
+    ): Promise<void> {
+      await database
+        .delete(event)
+        .where(
+          and(
+            eq(event.userId, userId),
+            eq(event.googleCalendarId, googleCalendarId),
+          ),
+        );
+    },
+
     /** Deletes the Event and records a tombstone in one transaction. */
     async remove(userId: string, id: string): Promise<void> {
       await database.transaction(async (tx) => {

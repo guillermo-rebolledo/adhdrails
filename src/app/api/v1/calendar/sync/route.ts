@@ -1,6 +1,10 @@
 import { getAccountSummary } from "@/server/auth/session";
 import type { CalendarImportService } from "@/server/calendar/import-service";
-import { getCalendarImportService } from "@/server/calendar/service-factory";
+import {
+  getCalendarImportService,
+  getCalendarWatchService,
+} from "@/server/calendar/service-factory";
+import type { CalendarWatchService } from "@/server/calendar/watch-service";
 import { jsonResponse } from "@/server/http/json";
 import {
   calendarReauthProblem,
@@ -13,12 +17,14 @@ import { logOperationalEvent } from "@/server/observability/logger";
 export interface CalendarSyncRouteDependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
   getService: () => CalendarImportService;
+  getWatchService: () => CalendarWatchService;
   createCorrelationId: (request: Request) => string;
 }
 
 const dependencies: CalendarSyncRouteDependencies = {
   getAccountSummary,
   getService: getCalendarImportService,
+  getWatchService: getCalendarWatchService,
   createCorrelationId: correlationIdFrom,
 };
 
@@ -54,6 +60,21 @@ export function createCalendarSyncRouteHandlers(
         );
       }
       return calendarReauthProblem(correlationId);
+    }
+
+    // Register (or renew) a push-notification watch per visible calendar so
+    // subsequent changes arrive incrementally (MEM-41). Best-effort: a watch
+    // failure must not fail the import the user just completed — periodic
+    // reconciliation is the backstop when watches are missing.
+    try {
+      await deps.getWatchService().ensureWatches(account.userId);
+    } catch {
+      logOperationalEvent({
+        correlationId,
+        action: "calendar.watch_renewal",
+        outcome: "failure",
+        safeCode: "watch_registration_failed",
+      });
     }
 
     logOperationalEvent({

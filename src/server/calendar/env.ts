@@ -109,3 +109,29 @@ export function readGoogleOAuthConfig(
     redirectUri: `${baseUrl(env).replace(/\/$/, "")}/api/calendar/callback`,
   };
 }
+
+export interface CalendarWebhookConfig {
+  /** The absolute HTTPS URL Google posts push notifications to. */
+  address: string;
+  /** Requested watch lifetime in seconds; Google may shorten it. */
+  ttlSeconds: number;
+}
+
+/** Google Calendar watches live at most ~7 days regardless of the request. */
+const WATCH_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Where Google should deliver Calendar push notifications. The address is derived
+ * from the app's base URL so each environment (local, staging, production) points
+ * at its own webhook; `CALENDAR_WEBHOOK_URL` can override it when the public URL
+ * differs from the auth base URL. Google requires a verified HTTPS domain in
+ * production, which the deployment provides.
+ */
+export function readCalendarWebhookConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): CalendarWebhookConfig {
+  const address =
+    env.CALENDAR_WEBHOOK_URL ??
+    `${baseUrl(env).replace(/\/$/, "")}/api/calendar/webhook`;
+  return { address, ttlSeconds: WATCH_TTL_SECONDS };
+}
