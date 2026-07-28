@@ -28,10 +28,11 @@ import { mirrorStatusLabel } from "./mirror-status";
  * Builds the query function that imports the Google mirror and hydrates one
  * week window into Dexie. `db` is passed in (not closed over from the hook) so
  * the query key alone — which carries `db.name` — identifies the cache entry.
- * After reconciling this week into Dexie, it invalidates the Later list — the
- * only *other* view that reads the mirror — so incremental changes beyond the
- * current week converge too. Task views are deliberately left untouched: a
- * Calendar sync never affects them.
+ * Only when the sync actually changed the mirror does it invalidate the Later
+ * list — the one *other* view that reads the mirror — so incremental changes
+ * beyond the current week converge without churning that list on a no-op sync
+ * (which would fight its Load-more pagination). Task views are deliberately left
+ * untouched: a Calendar sync never affects them.
  */
 function loadMirror(
   db: RailsDatabase,
@@ -41,7 +42,9 @@ function loadMirror(
   return async () => {
     const result = await syncCalendarMirror();
     await fetchEventWindow(db, window);
-    await queryClient.invalidateQueries({ queryKey: ["events"] });
+    if (result && (result.imported > 0 || result.removed > 0)) {
+      await queryClient.invalidateQueries({ queryKey: ["events"] });
+    }
     return result;
   };
 }

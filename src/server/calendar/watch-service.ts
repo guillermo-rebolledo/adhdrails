@@ -76,7 +76,6 @@ export function createCalendarWatchService(deps: CalendarWatchDependencies) {
       const skipped = calendars.length - due.length;
 
       for (const calendar of due) {
-
         // Stop the expiring channel first so Google is not left delivering to two
         // channels for the same calendar. Best-effort: a dead channel is fine.
         if (calendar.watchChannelId && calendar.watchResourceId) {

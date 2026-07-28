@@ -1,9 +1,13 @@
 import {
+  getCalendarSyncDispatcher,
   getIncrementalSyncService,
   getCalendarSyncJobRepository,
 } from "@/server/calendar/service-factory";
 import { runIncrementalSyncJob } from "@/server/calendar/run-sync-job";
-import { INCREMENTAL_SYNC_EVENT } from "@/server/calendar/sync-dispatcher";
+import {
+  INCREMENTAL_SYNC_EVENT,
+  drainPendingSyncJobs,
+} from "@/server/calendar/sync-dispatcher";
 import { logOperationalEvent } from "@/server/observability/logger";
 
 import { inngest } from "./client";
@@ -45,5 +49,34 @@ export const calendarIncrementalSync = inngest.createFunction(
   },
 );
 
+/**
+ * The scheduled outbox drain (MEM-41). A verified webhook dispatches inline for
+ * immediacy, but a dispatch that fails after the outbox row is committed would
+ * otherwise leave a durable `pending` job with nothing to deliver it. This
+ * periodic sweep redelivers any such rows to the incremental-sync function, so
+ * the transactional outbox's durability guarantee actually holds. Redelivery is
+ * safe: the sync body is idempotent and an already-completed job short-circuits.
+ */
+export const calendarSyncOutboxDrain = inngest.createFunction(
+  { id: "calendar-sync-outbox-drain", triggers: [{ cron: "*/5 * * * *" }] },
+  async () => {
+    const dispatched = await drainPendingSyncJobs({
+      syncJobRepository: getCalendarSyncJobRepository(),
+      dispatcher: getCalendarSyncDispatcher(),
+    });
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "calendar.outbox_drained",
+      outcome: "success",
+    });
+
+    return { dispatched };
+  },
+);
+
 /** All Inngest functions Rails serves. */
-export const inngestFunctions = [calendarIncrementalSync];
+export const inngestFunctions = [
+  calendarIncrementalSync,
+  calendarSyncOutboxDrain,
+];

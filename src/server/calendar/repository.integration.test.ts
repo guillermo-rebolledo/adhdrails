@@ -158,14 +158,17 @@ describe.skipIf(!connection)(
       // An unknown channel resolves to nothing.
       expect(await repository().getCalendarByChannel("missing")).toBeNull();
 
-      // Clearing the watch removes its routing without deleting the calendar.
-      await repository().clearWatch(USER_IDS[0], "primary@example.com");
+      // Renewal replaces the channel: the old id no longer routes, the new does.
+      await repository().saveWatch(USER_IDS[0], "primary@example.com", {
+        channelId: "chan-renewed",
+        resourceId: "res-renewed",
+        token: "watch-token-2",
+        expiresAt,
+      });
       expect(await repository().getCalendarByChannel("chan-xyz")).toBeNull();
-      const cleared = await repository().getCalendar(
-        USER_IDS[0],
-        "primary@example.com",
-      );
-      expect(cleared?.watchChannelId).toBeNull();
+      expect(
+        (await repository().getCalendarByChannel("chan-renewed"))?.watchToken,
+      ).toBe("watch-token-2");
     });
 
     it("lists only the account's visible calendars for a renewal sweep", async () => {

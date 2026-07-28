@@ -78,7 +78,6 @@ function inMemoryRepository() {
       return [];
     },
     async saveWatch() {},
-    async clearWatch() {},
     async deleteConnection(userId) {
       connections.delete(userId);
       calendars.delete(userId);

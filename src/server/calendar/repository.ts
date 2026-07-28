@@ -384,25 +384,6 @@ export function createCalendarRepository(database: Database) {
         );
     },
 
-    /** Clears one calendar's stored watch (after stopping or on renewal). */
-    async clearWatch(userId: string, googleCalendarId: string): Promise<void> {
-      await database
-        .update(calendarSelection)
-        .set({
-          watchChannelId: null,
-          watchResourceId: null,
-          watchToken: null,
-          watchExpiresAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(calendarSelection.userId, userId),
-            eq(calendarSelection.googleCalendarId, googleCalendarId),
-          ),
-        );
-    },
-
     /**
      * The most recent instant any of the account's calendars was synchronized,
      * or null before the first import. Drives the connection-level

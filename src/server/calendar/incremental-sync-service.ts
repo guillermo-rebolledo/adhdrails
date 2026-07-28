@@ -4,6 +4,7 @@ import type { EventRepository } from "@/server/event/repository";
 import {
   GoogleGoneError,
   type GoogleCalendarAuthAdapter,
+  type GoogleEventsPage,
 } from "./google-adapter";
 import type { CalendarRepository, CalendarSyncRecord } from "./repository";
 import type { TokenCipher } from "./token-cipher";
@@ -89,12 +90,16 @@ export function createIncrementalSyncService(
     return { changed, removed };
   }
 
-  /** Pages the changes since a stored cursor, applying each page as it arrives. */
-  async function syncFromCursor(
+  /**
+   * Drives one paginated read to exhaustion, applying every page as it arrives
+   * and capturing the final `nextSyncToken`. `fetchPage` is the only difference
+   * between resuming from a cursor and reading the bounded window, so both share
+   * this loop.
+   */
+  async function pageThrough(
     userId: string,
     calendar: CalendarSyncRecord,
-    accessToken: string,
-    syncToken: string,
+    fetchPage: (pageToken?: string) => Promise<GoogleEventsPage>,
   ): Promise<PageOutcome> {
     let pageToken: string | undefined;
     let nextSyncToken: string | null = null;
@@ -102,12 +107,7 @@ export function createIncrementalSyncService(
     let removed = 0;
 
     do {
-      const page = await adapter.listEventChanges({
-        accessToken,
-        calendarId: calendar.googleCalendarId,
-        syncToken,
-        pageToken,
-      });
+      const page = await fetchPage(pageToken);
       const applied = await applyEvents(userId, calendar, page.events);
       changed += applied.changed;
       removed += applied.removed;
@@ -118,39 +118,44 @@ export function createIncrementalSyncService(
     return { changed, removed, syncToken: nextSyncToken };
   }
 
+  /** Pages the changes since a stored cursor. */
+  function syncFromCursor(
+    userId: string,
+    calendar: CalendarSyncRecord,
+    accessToken: string,
+    syncToken: string,
+  ): Promise<PageOutcome> {
+    return pageThrough(userId, calendar, (pageToken) =>
+      adapter.listEventChanges({
+        accessToken,
+        calendarId: calendar.googleCalendarId,
+        syncToken,
+        pageToken,
+      }),
+    );
+  }
+
   /**
    * A bounded full resynchronization over the default mirror window, used the
    * first time a calendar syncs and after a `410 Gone`. Pages `events.list` with
    * `timeMin`/`timeMax` (never a stale cursor) and captures a fresh cursor.
    */
-  async function resyncWindow(
+  function resyncWindow(
     userId: string,
     calendar: CalendarSyncRecord,
     accessToken: string,
     at: Date,
   ): Promise<PageOutcome> {
     const window = mirrorWindow(at.toISOString());
-    let pageToken: string | undefined;
-    let nextSyncToken: string | null = null;
-    let changed = 0;
-    let removed = 0;
-
-    do {
-      const page = await adapter.listEvents({
+    return pageThrough(userId, calendar, (pageToken) =>
+      adapter.listEvents({
         accessToken,
         calendarId: calendar.googleCalendarId,
         timeMin: window.timeMin,
         timeMax: window.timeMax,
         pageToken,
-      });
-      const applied = await applyEvents(userId, calendar, page.events);
-      changed += applied.changed;
-      removed += applied.removed;
-      pageToken = page.nextPageToken ?? undefined;
-      nextSyncToken = page.nextSyncToken ?? nextSyncToken;
-    } while (pageToken);
-
-    return { changed, removed, syncToken: nextSyncToken };
+      }),
+    );
   }
 
   return {
@@ -224,7 +229,9 @@ export function createIncrementalSyncService(
       await calendarRepository.recordCalendarSync(userId, googleCalendarId, {
         // Keep the prior cursor if a page carried none (null or empty), so the
         // next sync still resumes rather than silently doing a full window read.
-        syncToken: outcome.syncToken || calendar.syncToken,
+        // After a 410 the prior cursor is the expired one that caused it, so the
+        // recovery path must never restore it — fall back to null instead.
+        syncToken: outcome.syncToken || (recovered ? null : calendar.syncToken),
         lastSyncedAt: syncedAt,
       });
 

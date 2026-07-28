@@ -238,6 +238,20 @@ describe("syncCalendar", () => {
     expect(cal.syncCalls.at(-1)).toMatchObject({ syncToken: `sync-${CAL}` });
   });
 
+  it("never restores the expired cursor after a 410, even if the resync yields none", async () => {
+    const { syncService, cal } = service(syncRecord(), {
+      changesGone: [CAL],
+      events: { [CAL]: [timedEvent("rebuilt", 9)] },
+      // The bounded resync returns no fresh sync token.
+      syncTokenFor: () => "",
+    });
+
+    await syncService.syncCalendar("user_1", CAL);
+
+    // The final recorded cursor is null, not the stale token that caused the 410.
+    expect(cal.syncCalls.at(-1)).toMatchObject({ syncToken: null });
+  });
+
   it("keeps the prior cursor when a change page carries no new sync token", async () => {
     const { syncService, cal } = service(syncRecord(), {
       changes: { [CAL]: [timedEvent("a", 9)] },

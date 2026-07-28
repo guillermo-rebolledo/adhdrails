@@ -80,6 +80,11 @@ function resolveDispatcher(): SyncJobDispatcher {
   return createEventSyncDispatcher(inngest);
 }
 
+/** The job dispatcher, for the scheduled outbox drain to redeliver pending work. */
+export function getCalendarSyncDispatcher(): SyncJobDispatcher {
+  return resolveDispatcher();
+}
+
 /** Builds the request-time Calendar service with real (or test) dependencies. */
 export function getCalendarService(): CalendarService {
   return createCalendarService({
