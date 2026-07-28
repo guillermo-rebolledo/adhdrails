@@ -71,6 +71,10 @@ try {
     // e2e, mirroring how the auth secrets above are supplied to the test runtime.
     CALENDAR_TOKEN_KEY_VERSION: "1",
     CALENDAR_TOKEN_KEY_V1: "RrVgpBEL9NQ+Tp+tBN+nDqxjIh23DWae9xqqNf1XOwU=",
+    VAPID_SUBJECT: "mailto:test@rails.test",
+    VAPID_PUBLIC_KEY:
+      "BKsk134LdfFHOQuYjKg5_lGJATPHWNPzdmyUzqDw_ETAqO9VPExTRejWsaAgNkXnt2JF4Z4W2JPgAEiNLrAzPjM",
+    VAPID_PRIVATE_KEY: "W63YrjxEip0P-c-HK-bWTQR0-hR5VtiS5nAMub727Jg",
   };
 
   await runCommand("pnpm", ["db:migrate"], environment);
@@ -87,6 +91,7 @@ try {
       "src/server/calendar/sync-job-repository.integration.test.ts",
       "src/server/event/repository.integration.test.ts",
       "src/server/event/export-job-repository.integration.test.ts",
+      "src/server/notification/repository.integration.test.ts",
     ],
     environment,
   );

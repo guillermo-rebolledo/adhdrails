@@ -8,6 +8,7 @@ export type ProblemCode =
   | "conflict"
   | "not_found"
   | "gone"
+  | "push_unavailable"
   | "recurring_series_edit"
   | "calendar_reauth_required";
 
@@ -95,6 +96,18 @@ export function notFoundProblem(
     detail,
     correlationId,
     retryable: false,
+  });
+}
+
+export function pushUnavailableProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/push-unavailable",
+    title: "Notification could not be sent",
+    status: 503,
+    code: "push_unavailable",
+    detail: "The browser notification service is temporarily unavailable.",
+    correlationId,
+    retryable: true,
   });
 }
 

@@ -18,6 +18,7 @@ import {
   drainPendingSyncJobs,
 } from "@/server/calendar/sync-dispatcher";
 import { logOperationalEvent } from "@/server/observability/logger";
+import { getReminderDeliveryService } from "@/server/notification/service-factory";
 
 import { inngest } from "./client";
 
@@ -253,6 +254,33 @@ export const calendarMirrorCleanup = inngest.createFunction(
   },
 );
 
+/**
+ * Near-term reminder sweep. Long-range schedules remain canonical on Tasks;
+ * each minute this function resolves wall-clock intent in the account timezone,
+ * atomically claims each per-device delivery, and retries only safe provider
+ * failures. Event notifications are intentionally absent—Google owns them.
+ */
+export const timedTaskReminders = inngest.createFunction(
+  {
+    id: "timed-task-reminders",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "* * * * *" }],
+  },
+  async () => {
+    const result = await getReminderDeliveryService().run(new Date());
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "task.reminders_delivered",
+      outcome: result.failed > 0 ? "failure" : "success",
+      safeCode: result.failed > 0 ? "push_unavailable" : undefined,
+    });
+
+    return result;
+  },
+);
+
 /** All Inngest functions Rails serves. */
 export const inngestFunctions = [
   calendarIncrementalSync,
@@ -262,4 +290,5 @@ export const inngestFunctions = [
   calendarWatchRenewal,
   calendarReconciliation,
   calendarMirrorCleanup,
+  timedTaskReminders,
 ];
