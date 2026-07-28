@@ -1,8 +1,12 @@
+import { Suspense } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AccountSettingsForm } from "@/components/settings/account-settings-form";
+import { CalendarSettings } from "@/components/settings/calendar-settings";
 import { getAccountSummary } from "@/server/auth/session";
+import { serializeConnection } from "@/server/calendar/http";
+import { getCalendarService } from "@/server/calendar/service-factory";
 
 export default async function SettingsPage() {
   const account = await getAccountSummary(await headers());
@@ -10,6 +14,8 @@ export default async function SettingsPage() {
   if (!account) {
     redirect("/signin");
   }
+
+  const connection = await getCalendarService().getConnection(account.userId);
 
   return (
     <section className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -39,13 +45,13 @@ export default async function SettingsPage() {
         initialLocale={account.locale}
       />
 
-      <div className="rounded-xl border bg-card p-6 text-card-foreground">
-        <h2 className="text-lg font-medium">Google Calendar</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Google Calendar is optional and connected separately from sign-in.
-          Connecting your calendar will be available here soon.
-        </p>
-      </div>
+      <Suspense>
+        <CalendarSettings
+          connection={connection ? serializeConnection(connection) : null}
+          accountTimezone={account.timezone}
+          accountLocale={account.locale}
+        />
+      </Suspense>
     </section>
   );
 }

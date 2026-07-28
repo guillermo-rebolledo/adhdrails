@@ -414,6 +414,81 @@ export const thought = pgTable(
   ],
 );
 
+/**
+ * One account's Google Calendar connection. A row exists only while Calendar
+ * access is granted, so its presence is the connection itself — disconnecting
+ * deletes it and never touches the account or its login. The refresh token is
+ * stored only as authenticated ciphertext: `refresh_token_ciphertext`,
+ * `refresh_token_nonce`, and `refresh_token_auth_tag` are the AES-256-GCM
+ * outputs and `refresh_token_key_version` records which key sealed them, so keys
+ * can rotate without re-encryption. Plaintext tokens never reach a column, a
+ * response, or a log. `status` is a constrained text union ("connected" |
+ * "needs_reauth"). `primary_calendar_id`/`primary_time_zone` capture the
+ * primary calendar for the timezone offer.
+ */
+export const calendarConnection = pgTable("calendar_connection", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("connected"),
+  googleAccountId: text("google_account_id"),
+  scope: text("scope").notNull(),
+  refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+  refreshTokenNonce: text("refresh_token_nonce").notNull(),
+  refreshTokenAuthTag: text("refresh_token_auth_tag").notNull(),
+  refreshTokenKeyVersion: integer("refresh_token_key_version").notNull(),
+  primaryCalendarId: text("primary_calendar_id"),
+  primaryTimeZone: text("primary_time_zone"),
+  connectedAt: timestamp("connected_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * A calendar the account has an opinion about: whether it is visible in the
+ * agenda and whether it is the single writable destination for Rails-created
+ * Events. Rows are a snapshot taken at connect time (summary, access role, and
+ * timezone from Google's calendar list) so Settings can render without a live
+ * Google read. The partial unique index enforces the account-wide invariant
+ * that at most one calendar is writable; `access_role` is snapshotted so a
+ * read-only calendar can never be promoted to a write destination offline.
+ */
+export const calendarSelection = pgTable(
+  "calendar_selection",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    googleCalendarId: text("google_calendar_id").notNull(),
+    summary: text("summary").notNull(),
+    accessRole: text("access_role").notNull(),
+    timeZone: text("time_zone"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    isVisible: boolean("is_visible").notNull().default(true),
+    isWritable: boolean("is_writable").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("calendar_selection_account_calendar_idx").on(
+      table.userId,
+      table.googleCalendarId,
+    ),
+    // At most one writable calendar per account: an unambiguous write target.
+    uniqueIndex("calendar_selection_one_writable_idx")
+      .on(table.userId)
+      .where(sql`is_writable`),
+  ],
+);
+
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
