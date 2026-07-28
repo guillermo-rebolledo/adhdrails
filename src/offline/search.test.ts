@@ -154,4 +154,37 @@ describe("offline search", () => {
     expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
     expect(second.nextCursor).toBeNull();
   });
+
+  it("keeps a thousand-record local search within the interaction budget", async () => {
+    const db = database();
+    await db.tasks.bulkAdd(
+      Array.from({ length: 1_000 }, (_, index) => ({
+        id: `8${String(index).padStart(7, "0")}-0000-4000-8000-000000000001`,
+        title:
+          index === 999
+            ? "Quarterly planning report"
+            : `Archived note ${index}`,
+        notes: "",
+        status: "active" as const,
+        scheduledDate: null,
+        scheduledTime: null,
+        estimateMinutes: null,
+        energy: null,
+        important: false,
+        areaId: null,
+        completedAt: null,
+        version: 1,
+        createdAt: "2026-07-28T09:00:00.000Z",
+        deletedAt: null,
+        syncState: "synced" as const,
+      })),
+    );
+
+    const startedAt = performance.now();
+    const page = await searchLocalContent(db, "quarterly report");
+    const durationMs = performance.now() - startedAt;
+
+    expect(page.items[0]?.title).toBe("Quarterly planning report");
+    expect(durationMs).toBeLessThan(1_000);
+  });
 });

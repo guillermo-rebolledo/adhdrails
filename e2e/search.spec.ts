@@ -4,17 +4,14 @@ import { expect, test } from "@playwright/test";
 import { signIn } from "./support/session";
 
 test.describe("global search", () => {
-  test.beforeEach(({ browserName }) => {
-    test.skip(
-      browserName !== "chromium",
-      "The integrated UI and IndexedDB fallback run on one representative engine.",
-    );
-  });
-
   test("finds and opens ranked domain content with keyboard navigation", async ({
     page,
+    browserName,
   }) => {
-    await signIn(page, { onboarded: true });
+    await signIn(page, {
+      onboarded: true,
+      email: `search-ranking-${browserName}@rails.test`,
+    });
     const taskId = crypto.randomUUID();
     expect(
       (
@@ -45,8 +42,16 @@ test.describe("global search", () => {
   test("falls back to synchronized Dexie content offline and remains accessible", async ({
     page,
     context,
+    browserName,
   }) => {
-    await signIn(page, { onboarded: true });
+    test.skip(
+      browserName !== "chromium",
+      "Offline emulation is Chromium-only.",
+    );
+    await signIn(page, {
+      onboarded: true,
+      email: `search-offline-${browserName}@rails.test`,
+    });
     await page.goto("/thoughts/new");
     await page.getByLabel("Title").fill("Conference reference");
     await page.getByLabel("Notes").fill("Questions for the speaker");

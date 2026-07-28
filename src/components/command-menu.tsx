@@ -10,7 +10,14 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@base-ui/react/dialog";
-import { PlusIcon, SearchIcon, SparklesIcon } from "lucide-react";
+import {
+  CheckSquareIcon,
+  InboxIcon,
+  LightbulbIcon,
+  PlusIcon,
+  SearchIcon,
+  SparklesIcon,
+} from "lucide-react";
 
 import {
   type NavigationDestination,
@@ -25,6 +32,7 @@ interface CommandEntry extends NavigationDestination {
   /** Single-key accelerator, present only for the four quick actions. Pressing
    *  it from the empty palette runs the action. */
   shortcut?: string;
+  typeLabel?: string;
 }
 
 // The four creation/capture actions come first so the palette opens on the fast
@@ -67,10 +75,15 @@ const actions: CommandEntry[] = [
 const destinations: CommandEntry[] = navigationDestinations;
 
 const searchResultIcons = {
-  task: PlusIcon,
-  thought: SparklesIcon,
-  inbox_item: SearchIcon,
+  task: CheckSquareIcon,
+  thought: LightbulbIcon,
+  inbox_item: InboxIcon,
 } satisfies Record<SearchResultType, typeof SearchIcon>;
+const searchResultLabels = {
+  task: "Task",
+  thought: "Thought",
+  inbox_item: "Inbox item",
+} satisfies Record<SearchResultType, string>;
 
 interface CommandGroup {
   heading: string;
@@ -169,6 +182,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
         href: result.href,
         icon: searchResultIcons[result.type],
         keywords: [],
+        typeLabel: searchResultLabels[result.type],
       })),
     [contentResults],
   );
@@ -344,6 +358,11 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
                   >
                     <Icon aria-hidden="true" />
                     <span className="flex-1">{entry.label}</span>
+                    {entry.typeLabel ? (
+                      <span className="rounded-full bg-background px-1.5 text-xs text-foreground">
+                        {entry.typeLabel}
+                      </span>
+                    ) : null}
                     {entry.shortcut ? (
                       <kbd className="rounded border bg-background px-1.5 font-sans text-[0.7rem] text-muted-foreground">
                         {entry.shortcut}

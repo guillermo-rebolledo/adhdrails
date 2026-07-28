@@ -4,6 +4,7 @@ import "fake-indexeddb/auto";
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RailsDatabase } from "@/offline/db";
@@ -18,6 +19,17 @@ vi.mock("@/offline/provider", () => ({
   useOffline: () => ({ db, accountId: "owner", sync: vi.fn() }),
   useOptionalOffline: () => ({ db, accountId: "owner", sync: vi.fn() }),
 }));
+
+function renderSearchView(debounceMs: number) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <SearchView debounceMs={debounceMs} />
+    </QueryClientProvider>,
+  );
+}
 
 beforeEach(() => {
   db = new RailsDatabase(`search-view-${crypto.randomUUID()}`);
@@ -52,7 +64,7 @@ describe("SearchView", () => {
       ),
     );
     const user = userEvent.setup();
-    render(<SearchView debounceMs={10} />);
+    renderSearchView(10);
 
     await user.type(
       screen.getByRole("combobox", { name: "Search your Rails content" }),
@@ -69,7 +81,6 @@ describe("SearchView", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ query: "report" }),
-        signal: expect.any(AbortSignal),
       }),
     );
     expect(screen.getByRole("status")).toHaveTextContent("1 result found");
@@ -90,7 +101,7 @@ describe("SearchView", () => {
       syncState: "synced",
     });
     const user = userEvent.setup();
-    render(<SearchView debounceMs={10} />);
+    renderSearchView(10);
 
     const input = screen.getByRole("combobox", {
       name: "Search your Rails content",
@@ -141,7 +152,7 @@ describe("SearchView", () => {
         ),
       );
     const user = userEvent.setup();
-    render(<SearchView debounceMs={10} />);
+    renderSearchView(10);
 
     await user.type(
       screen.getByRole("combobox", { name: "Search your Rails content" }),

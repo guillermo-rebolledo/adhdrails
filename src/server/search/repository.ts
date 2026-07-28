@@ -65,7 +65,7 @@ export function createSearchRepository(database: Database) {
             and (
               to_tsvector('simple', title || ' ' || notes) @@ websearch_to_tsquery('simple', ${query})
               or lower(title || ' ' || notes) like '%' || lower(${query}) || '%'
-              or word_similarity(lower(${query}), lower(title || ' ' || notes)) >= 0.35
+              or lower(${query}) <<% lower(title || ' ' || notes)
             )
           union all
           select
@@ -91,7 +91,7 @@ export function createSearchRepository(database: Database) {
             and (
               to_tsvector('simple', title || ' ' || body) @@ websearch_to_tsquery('simple', ${query})
               or lower(title || ' ' || body) like '%' || lower(${query}) || '%'
-              or word_similarity(lower(${query}), lower(title || ' ' || body)) >= 0.35
+              or lower(${query}) <<% lower(title || ' ' || body)
             )
           union all
           select
@@ -117,7 +117,7 @@ export function createSearchRepository(database: Database) {
             and (
               to_tsvector('simple', title) @@ websearch_to_tsquery('simple', ${query})
               or lower(title) like '%' || lower(${query}) || '%'
-              or word_similarity(lower(${query}), lower(title)) >= 0.35
+              or lower(${query}) <<% lower(title)
             )
         )
         select id, type, title, excerpt, score

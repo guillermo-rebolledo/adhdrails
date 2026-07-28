@@ -66,6 +66,20 @@ describe("InboxList", () => {
     );
   });
 
+  it("focuses and identifies an Inbox Item opened from search", async () => {
+    db = freshDatabase();
+    const first = await captureInboxItem(db, "First capture");
+    await captureInboxItem(db, "Newest capture");
+    render(<InboxList highlightedItemId={first.id} />);
+
+    await screen.findByText("First capture");
+    const result = document.getElementById(`inbox-item-${first.id}`);
+    expect(result).not.toBeNull();
+    await waitFor(() => expect(result).toHaveFocus());
+    expect(result).toHaveAttribute("aria-current", "true");
+    expect(screen.getAllByRole("listitem")[0]).toBe(result);
+  });
+
   it("classifies an item as a Thought", async () => {
     db = freshDatabase();
     await captureInboxItem(db, "Reference to keep");

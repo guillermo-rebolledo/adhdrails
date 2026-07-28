@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createDatabaseConnection } from "@/server/db/client";
@@ -65,13 +65,13 @@ describe.skipIf(!connection)("Search repository PostgreSQL integration", () => {
   it("ranks full-text, partial, and typo-tolerant matches without leaking another account", async () => {
     const repository = createSearchRepository(connection!.database);
 
-    const fullText = await repository.search(USERS[0], "planning report");
+    const fullText = await repository.search(USERS[0], "planning");
     const typo = await repository.search(USERS[0], "quaterly");
 
     expect(fullText.items.map((item) => item.id)).toEqual([
+      IDS.inbox,
       IDS.task,
       IDS.thought,
-      IDS.inbox,
     ]);
     expect(typo.items[0]).toMatchObject({
       id: IDS.task,
@@ -99,5 +99,49 @@ describe.skipIf(!connection)("Search repository PostgreSQL integration", () => {
     expect(second.items).toHaveLength(1);
     expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
     expect(second.nextCursor).toBeNull();
+  });
+
+  it("installs the GIN indexes that protect full-text and trigram search", async () => {
+    const indexes = await connection!.database.execute<{
+      indexname: string;
+    }>(sql`
+      select indexname
+      from pg_indexes
+      where schemaname = 'public'
+        and indexname in (
+          'task_search_fts_idx',
+          'task_search_trgm_idx',
+          'thought_search_fts_idx',
+          'thought_search_trgm_idx',
+          'inbox_item_search_fts_idx',
+          'inbox_item_search_trgm_idx'
+        )
+      order by indexname
+    `);
+
+    expect(indexes.map(({ indexname }) => indexname)).toEqual([
+      "inbox_item_search_fts_idx",
+      "inbox_item_search_trgm_idx",
+      "task_search_fts_idx",
+      "task_search_trgm_idx",
+      "thought_search_fts_idx",
+      "thought_search_trgm_idx",
+    ]);
+  });
+
+  it("uses the trigram index for typo-tolerant word matching", async () => {
+    await connection!.database.transaction(async (transaction) => {
+      await transaction.execute(sql`set local enable_seqscan = off`);
+      const plan = await transaction.execute<{ "QUERY PLAN": string }>(sql`
+        explain
+        select id
+        from task
+        where lower('quaterly') <<% lower(title || ' ' || notes)
+      `);
+
+      expect(plan.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
+        "task_search_trgm_idx",
+      );
+    });
   });
 });

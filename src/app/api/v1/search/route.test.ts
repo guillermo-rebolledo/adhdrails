@@ -12,8 +12,10 @@ describe("POST /api/v1/search", () => {
   it("requires an authenticated account", async () => {
     const POST = createSearchRouteHandler({
       getAccountSummary: vi.fn().mockResolvedValue(null),
-      search: vi.fn(),
+      getService: () => ({ search: vi.fn() }),
       createCorrelationId: () => "cor_1",
+      now: () => 0,
+      recordCompletion: vi.fn(),
     });
 
     const response = await POST(request({ query: "report" }));
@@ -34,10 +36,13 @@ describe("POST /api/v1/search", () => {
       ],
       nextCursor: null,
     });
+    const recordCompletion = vi.fn();
     const POST = createSearchRouteHandler({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "owner" }),
-      search,
+      getService: () => ({ search }),
       createCorrelationId: () => "cor_1",
+      now: vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(18),
+      recordCompletion,
     });
 
     const response = await POST(
@@ -49,6 +54,13 @@ describe("POST /api/v1/search", () => {
       query: "private report",
       cursor: "next",
     });
+    expect(recordCompletion).toHaveBeenCalledWith({
+      correlationId: "cor_1",
+      durationMs: 8,
+    });
+    expect(JSON.stringify(recordCompletion.mock.calls)).not.toContain(
+      "private report",
+    );
     await expect(response.json()).resolves.toMatchObject({
       items: [{ type: "task", title: "Quarterly report" }],
       nextCursor: null,
@@ -59,8 +71,10 @@ describe("POST /api/v1/search", () => {
     const search = vi.fn();
     const POST = createSearchRouteHandler({
       getAccountSummary: vi.fn().mockResolvedValue({ userId: "owner" }),
-      search,
+      getService: () => ({ search }),
       createCorrelationId: () => "cor_1",
+      now: () => 0,
+      recordCompletion: vi.fn(),
     });
 
     const blank = await POST(request({ query: "  " }));

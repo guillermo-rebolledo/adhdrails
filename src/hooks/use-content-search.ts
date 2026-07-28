@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import {
   searchPageSchema,
@@ -8,103 +9,138 @@ import {
   type SearchResult,
 } from "@/domain/search/search";
 import { apiRequest } from "@/lib/api-client";
+import { useOptionalOffline } from "@/offline/provider";
 import { searchLocalContent } from "@/offline/search";
-
-import { useOptionalOffline } from "../offline/provider";
 
 export type SearchSource = "online" | "offline";
 
-export function useContentSearch(query: string, debounceMs = 200) {
-  const offline = useOptionalOffline();
-  const db = offline?.db;
-  const [items, setItems] = useState<SearchResult[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [source, setSource] = useState<SearchSource>("online");
-  const [loading, setLoading] = useState(false);
-  const [resolvedQuery, setResolvedQuery] = useState("");
-  const requestSequence = useRef(0);
+const SEARCH_MAX_PAGES = 5;
 
-  const run = useCallback(
-    async (
-      searchedQuery: string,
-      cursor: string | null,
-      append: boolean,
-      signal?: AbortSignal,
-    ) => {
-      const sequence = ++requestSequence.current;
-      setLoading(true);
-      let page: SearchPage;
-
-      try {
-        if (!navigator.onLine) throw new Error("offline");
-        const response = await apiRequest<unknown>("/api/v1/search", {
-          method: "POST",
-          body: JSON.stringify({
-            query: searchedQuery,
-            cursor: cursor ?? undefined,
-          }),
-          signal,
-        });
-        if (!response.ok || !response.body) throw new Error("search_failed");
-        page = searchPageSchema.parse(response.body);
-        if (sequence !== requestSequence.current) return;
-        setSource("online");
-      } catch {
-        if (signal?.aborted) return;
-        page = db
-          ? await searchLocalContent(db, searchedQuery, cursor)
-          : { items: [], nextCursor: null };
-        if (sequence !== requestSequence.current) return;
-        setSource("offline");
-      }
-
-      setItems((current) =>
-        append ? [...current, ...page.items] : page.items,
-      );
-      setNextCursor(page.nextCursor);
-      setResolvedQuery(searchedQuery);
-      setLoading(false);
-    },
-    [db],
-  );
+function useDebouncedValue(value: string, delay: number) {
+  const [debounced, setDebounced] = useState(value);
 
   useEffect(() => {
-    const searchedQuery = query.trim();
-    if (!searchedQuery) {
-      requestSequence.current += 1;
+    const timeout = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, value]);
+
+  return debounced;
+}
+
+async function fetchSearchPage(query: string, cursor: string | null) {
+  const response = await apiRequest<unknown>("/api/v1/search", {
+    method: "POST",
+    body: JSON.stringify({ query, cursor: cursor ?? undefined }),
+  });
+  if (!response.ok || !response.body) throw new Error("search_failed");
+  return searchPageSchema.parse(response.body);
+}
+
+/**
+ * TanStack Query owns cursor-paginated online views. Dexie remains the durable
+ * fallback owner when the browser is offline or the server cannot be reached.
+ */
+export function useContentSearch(query: string, debounceMs = 200) {
+  const offline = useOptionalOffline();
+  const normalizedQuery = query.trim();
+  const debouncedQuery = useDebouncedValue(normalizedQuery, debounceMs);
+  const [online, setOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const [localItems, setLocalItems] = useState<SearchResult[]>([]);
+  const [localCursor, setLocalCursor] = useState<string | null>(null);
+  const [localLoading, setLocalLoading] = useState(false);
+
+  useEffect(() => {
+    const connected = () => setOnline(true);
+    const disconnected = () => setOnline(false);
+    window.addEventListener("online", connected);
+    window.addEventListener("offline", disconnected);
+    return () => {
+      window.removeEventListener("online", connected);
+      window.removeEventListener("offline", disconnected);
+    };
+  }, []);
+
+  const remote = useInfiniteQuery({
+    queryKey: ["search", debouncedQuery],
+    enabled: online && debouncedQuery.length > 0,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => fetchSearchPage(debouncedQuery, pageParam),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    maxPages: SEARCH_MAX_PAGES,
+    staleTime: 30_000,
+  });
+
+  const useLocal = !online || remote.isError;
+
+  useEffect(() => {
+    if (!useLocal || !offline?.db || !debouncedQuery) return;
+    let current = true;
+    void Promise.resolve()
+      .then(() => {
+        if (current) setLocalLoading(true);
+        return searchLocalContent(offline.db, debouncedQuery);
+      })
+      .then((page) => {
+        if (!current) return;
+        setLocalItems(page.items);
+        setLocalCursor(page.nextCursor);
+      })
+      .finally(() => {
+        if (current) setLocalLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [debouncedQuery, offline?.db, useLocal]);
+
+  const remoteItems = useMemo(
+    () => remote.data?.pages.flatMap((page) => page.items) ?? [],
+    [remote.data?.pages],
+  );
+
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = remote;
+  const loadMore = async () => {
+    if (useLocal) {
+      if (!offline?.db || !localCursor || localLoading) return;
+      setLocalLoading(true);
+      const page: SearchPage = await searchLocalContent(
+        offline.db,
+        debouncedQuery,
+        localCursor,
+      );
+      setLocalItems((current) => [...current, ...page.items]);
+      setLocalCursor(page.nextCursor);
+      setLocalLoading(false);
       return;
     }
+    if (hasNextPage && !isFetchingNextPage) {
+      await fetchNextPage();
+    }
+  };
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => {
-      void run(searchedQuery, null, false, controller.signal);
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [debounceMs, query, run]);
-
-  const loadMore = useCallback(() => {
-    if (!nextCursor || loading) return Promise.resolve();
-    return run(query.trim(), nextCursor, true);
-  }, [loading, nextCursor, query, run]);
-
-  const normalizedQuery = query.trim();
-  const showsResolvedQuery =
-    normalizedQuery.length > 0 && normalizedQuery === resolvedQuery;
+  const waitingForDebounce =
+    normalizedQuery.length > 0 && normalizedQuery !== debouncedQuery;
+  const items = waitingForDebounce
+    ? []
+    : normalizedQuery
+      ? useLocal
+        ? localItems
+        : remoteItems
+      : [];
 
   return {
-    items: showsResolvedQuery ? items : [],
-    nextCursor: showsResolvedQuery ? nextCursor : null,
-    source:
-      normalizedQuery.length === 0
-        ? navigator.onLine
-          ? "online"
-          : "offline"
-        : source,
-    loading: normalizedQuery.length > 0 && (loading || !showsResolvedQuery),
+    items,
+    nextCursor: useLocal
+      ? localCursor
+      : remote.hasNextPage
+        ? "remote-next-page"
+        : null,
+    source: (useLocal ? "offline" : "online") satisfies SearchSource,
+    loading:
+      waitingForDebounce ||
+      (useLocal ? localLoading : remote.isLoading || remote.isFetchingNextPage),
     loadMore,
   };
 }

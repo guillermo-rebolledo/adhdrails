@@ -2,6 +2,7 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommandMenu } from "./command-menu";
@@ -19,10 +20,21 @@ function openWithShortcut(user: ReturnType<typeof userEvent.setup>) {
   return user.keyboard("{Meta>}k{/Meta}");
 }
 
+function renderCommandMenu() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <CommandMenu />
+    </QueryClientProvider>,
+  );
+}
+
 describe("CommandMenu", () => {
   it("opens the palette with Command or Control plus K", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
@@ -35,7 +47,7 @@ describe("CommandMenu", () => {
 
   it("opens from the visible launcher and focuses the search field", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
 
     await user.click(screen.getByRole("button", { name: "Open command menu" }));
 
@@ -47,7 +59,7 @@ describe("CommandMenu", () => {
 
   it("exposes every destination and the four quick actions", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     const list = screen.getByRole("listbox", { name: "Results" });
@@ -72,7 +84,7 @@ describe("CommandMenu", () => {
 
   it("filters destinations as the user types", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     // "inbox" starts with a non-accelerator letter, so every keystroke filters.
@@ -111,7 +123,7 @@ describe("CommandMenu", () => {
       ),
     );
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     await user.type(
@@ -120,8 +132,9 @@ describe("CommandMenu", () => {
     );
 
     const result = await screen.findByRole("option", {
-      name: "Quarterly report",
+      name: /Quarterly report/,
     });
+    expect(result).toHaveTextContent("Task");
     await user.click(result);
 
     expect(push).toHaveBeenCalledWith(
@@ -131,7 +144,7 @@ describe("CommandMenu", () => {
 
   it("navigates to a destination when an option is chosen", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     await user.click(screen.getByRole("option", { name: /Calendar/ }));
@@ -144,7 +157,7 @@ describe("CommandMenu", () => {
 
   it("moves the active option with the arrow keys and runs it on Enter", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     // First option (Capture) is active on open; one step down reaches New Task.
@@ -155,7 +168,7 @@ describe("CommandMenu", () => {
 
   it("runs the quick-action accelerators from the empty palette", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
 
     await openWithShortcut(user);
     await user.keyboard("c");
@@ -176,7 +189,7 @@ describe("CommandMenu", () => {
 
   it("stops treating letters as accelerators once a search is underway", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     // "s" is not an accelerator, so it starts a search; the following "t" must
@@ -192,7 +205,7 @@ describe("CommandMenu", () => {
 
   it("closes with Escape without navigating", async () => {
     const user = userEvent.setup();
-    render(<CommandMenu />);
+    renderCommandMenu();
     await openWithShortcut(user);
 
     await user.keyboard("{Escape}");

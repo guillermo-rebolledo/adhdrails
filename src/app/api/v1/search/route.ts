@@ -4,26 +4,36 @@ import { getDatabase } from "@/server/db/connection";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
+import { logOperationalEvent } from "@/server/observability/logger";
 import { createSearchRepository } from "@/server/search/repository";
+import {
+  createSearchService,
+  type SearchService,
+} from "@/server/search/service";
 
 interface Dependencies {
   getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
-  search: (
-    userId: string,
-    input: { query: string; cursor?: string },
-  ) => Promise<unknown>;
+  getService: () => SearchService;
   createCorrelationId: (request: Request) => string;
+  now: () => number;
+  recordCompletion: (input: {
+    correlationId: string;
+    durationMs: number;
+  }) => void;
 }
 
 const dependencies: Dependencies = {
   getAccountSummary,
-  search: (userId, input) =>
-    createSearchRepository(getDatabase()).search(
-      userId,
-      input.query,
-      input.cursor,
-    ),
+  getService: () => createSearchService(createSearchRepository(getDatabase())),
   createCorrelationId: correlationIdFrom,
+  now: () => performance.now(),
+  recordCompletion: ({ correlationId, durationMs }) =>
+    logOperationalEvent({
+      correlationId,
+      action: "search.completed",
+      outcome: "success",
+      durationMs,
+    }),
 };
 
 export function createSearchRouteHandler(deps: Dependencies) {
@@ -39,9 +49,14 @@ export function createSearchRouteHandler(deps: Dependencies) {
       });
     }
 
-    const page = await deps.search(account.userId, {
+    const startedAt = deps.now();
+    const page = await deps.getService().search(account.userId, {
       query: parsed.data.query,
       cursor: parsed.data.cursor,
+    });
+    deps.recordCompletion({
+      correlationId,
+      durationMs: deps.now() - startedAt,
     });
     return jsonResponse(searchPageSchema.parse(page), correlationId);
   };
