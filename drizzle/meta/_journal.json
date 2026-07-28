@@ -92,6 +92,13 @@
       "when": 1785220739504,
       "tag": "0012_small_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785263144848,
+      "tag": "0013_woozy_dazzler",
+      "breakpoints": true
     }
   ]
 }

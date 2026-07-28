@@ -227,3 +227,164 @@ describe("revoke", () => {
     );
   });
 });
+
+const writeBody = {
+  summary: "Standup",
+  start: { dateTime: "2026-07-27T13:00:00.000Z", timeZone: "America/New_York" },
+  end: { dateTime: "2026-07-27T13:30:00.000Z", timeZone: "America/New_York" },
+};
+
+describe("insertEvent", () => {
+  it("posts the write body to the calendar and returns the assigned id", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ id: "g-created-1" }, 200));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    const result = await adapter.insertEvent({
+      accessToken: "at",
+      calendarId: "team@group.calendar.google.com",
+      body: writeBody,
+    });
+
+    expect(result.googleEventId).toBe("g-created-1");
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/team%40group.calendar.google.com/events",
+    );
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual(writeBody);
+  });
+
+  it("throws when Google omits the created id", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 200));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.insertEvent({
+        accessToken: "at",
+        calendarId: "c",
+        body: writeBody,
+      }),
+    ).rejects.toThrow(/missing an id/);
+  });
+
+  it("throws on a non-2xx response", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.insertEvent({
+        accessToken: "at",
+        calendarId: "c",
+        body: writeBody,
+      }),
+    ).rejects.toThrow(/insert failed \(500\)/);
+  });
+});
+
+describe("patchEvent", () => {
+  it("patches the identified event with the write body", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ id: "g-1" }, 200));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await adapter.patchEvent({
+      accessToken: "at",
+      calendarId: "primary@example.com",
+      googleEventId: "g-1",
+      body: writeBody,
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary%40example.com/events/g-1",
+    );
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual(writeBody);
+  });
+
+  it("treats a 410 as a benign no-op", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 410 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.patchEvent({
+        accessToken: "at",
+        calendarId: "c",
+        googleEventId: "g-1",
+        body: writeBody,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws on a non-2xx response other than 404/410", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 500 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.patchEvent({
+        accessToken: "at",
+        calendarId: "c",
+        googleEventId: "g-1",
+        body: writeBody,
+      }),
+    ).rejects.toThrow(/patch failed \(500\)/);
+  });
+});
+
+describe("deleteEvent", () => {
+  it("deletes the identified event", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await adapter.deleteEvent({
+      accessToken: "at",
+      calendarId: "primary@example.com",
+      googleEventId: "g-1",
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary%40example.com/events/g-1",
+    );
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("resolves when the event is already gone (410)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 410 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.deleteEvent({
+        accessToken: "at",
+        calendarId: "c",
+        googleEventId: "g-1",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws on a non-2xx response other than 404/410", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 500 }));
+    const adapter = createGoogleCalendarAuthAdapter(config, fetchImpl);
+
+    await expect(
+      adapter.deleteEvent({
+        accessToken: "at",
+        calendarId: "c",
+        googleEventId: "g-1",
+      }),
+    ).rejects.toThrow(/delete failed \(500\)/);
+  });
+});

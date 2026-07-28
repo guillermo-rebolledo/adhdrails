@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isRecurringEvent } from "@/domain/calendar/export";
 import {
   decodeEventCursor,
   LATER_PAGE_SIZE,
@@ -12,7 +13,11 @@ import {
   resolveUpdate,
 } from "@/domain/event/event";
 
-import type { EventRecord, EventRepository } from "./repository";
+import type {
+  EventExportSpec,
+  EventRecord,
+  EventRepository,
+} from "./repository";
 
 export type EventCreateResult =
   | { ok: true; item: EventRecord; created: boolean }
@@ -25,7 +30,23 @@ export type EventUpdateResult =
   | { ok: false; reason: "invalid"; fieldErrors: Record<string, string[]> }
   | { ok: false; reason: "conflict"; current: EventRecord }
   | { ok: false; reason: "not_found" }
-  | { ok: false; reason: "gone" };
+  | { ok: false; reason: "gone" }
+  | { ok: false; reason: "recurring_series" };
+
+/**
+ * Resolves the account's single writable Google calendar, if it has one. Injected
+ * so the Event service can decide whether a local Event mutation should be
+ * exported to Google without depending on the Calendar repository directly. When
+ * absent (or resolving to null) the account has no write destination and local
+ * Events simply stay local until an explicit export-on-reconnect.
+ */
+export interface WritableCalendarLookup {
+  get(userId: string): Promise<{ googleCalendarId: string } | null>;
+}
+
+export interface EventServiceDependencies {
+  writableCalendar?: WritableCalendarLookup;
+}
 
 /** A resolved page of the Later list plus the opaque cursor for the next page. */
 export interface LaterPage {
@@ -52,7 +73,27 @@ function toCreateState(record: EventRecord) {
  * weekly window and the cursor-paged Later list. Route handlers translate the
  * outcome to HTTP.
  */
-export function createEventService(repository: EventRepository) {
+export function createEventService(
+  repository: EventRepository,
+  deps: EventServiceDependencies = {},
+) {
+  /** The write target for a mutation to an already mirrored Event, if any. */
+  function linkedTarget(record: EventRecord): EventExportSpec | undefined {
+    return record.googleCalendarId && record.googleEventId
+      ? { googleCalendarId: record.googleCalendarId }
+      : undefined;
+  }
+
+  /** The account's writable calendar as an export target, or undefined. */
+  async function writableTarget(
+    userId: string,
+  ): Promise<EventExportSpec | undefined> {
+    const writable = await deps.writableCalendar?.get(userId);
+    return writable
+      ? { googleCalendarId: writable.googleCalendarId }
+      : undefined;
+  }
+
   return {
     async create(
       userId: string,
@@ -86,7 +127,12 @@ export function createEventService(repository: EventRepository) {
         return { ok: true, item: existing!, created: false };
       }
 
-      const item = await repository.insert(userId, input);
+      // A new local timed Event exports to the writable calendar when one is
+      // selected; otherwise it stays local until an explicit export-on-reconnect.
+      const target = await writableTarget(userId);
+      const item = target
+        ? await repository.insert(userId, input, target)
+        : await repository.insert(userId, input);
       return { ok: true, item, created: true };
     },
 
@@ -118,15 +164,31 @@ export function createEventService(repository: EventRepository) {
       if (resolution === "conflict") {
         return { ok: false, reason: "conflict", current: existing! };
       }
+
+      // Recurring-series edits route the user to Google rather than being
+      // partially applied in Rails. This precedes the replay short-circuit so a
+      // re-sent recurring edit is refused consistently, never silently accepted.
+      if (existing && isRecurringEvent(existing)) {
+        return { ok: false, reason: "recurring_series" };
+      }
+
       if (resolution === "replay") {
         return { ok: true, item: existing!, applied: false };
       }
 
-      const item = await repository.update(userId, id, {
+      // Propagate to Google when the Event is already mirrored there, or when it
+      // is a local Event and a writable calendar is selected.
+      const exportSpec =
+        linkedTarget(existing!) ?? (await writableTarget(userId));
+      const write = {
         patch: input.patch,
         version: existing!.version + 1,
         idempotencyKey: input.idempotencyKey,
-      });
+      };
+
+      const item = exportSpec
+        ? await repository.update(userId, id, write, exportSpec)
+        : await repository.update(userId, id, write);
       return { ok: true, item, applied: true };
     },
 

@@ -68,6 +68,9 @@ function inMemoryRepository() {
       }
       return [...forUser.values()].reduce((a, b) => (a > b ? a : b));
     },
+    async getWritableCalendar() {
+      return null;
+    },
     async getCalendar() {
       return null;
     },

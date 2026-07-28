@@ -1,11 +1,10 @@
-import { getDatabase } from "@/server/db/connection";
 import { getAccountSummary } from "@/server/auth/session";
 import {
   eventCreateFailureResponse,
   serializeEvent,
 } from "@/server/event/http";
-import { createEventRepository } from "@/server/event/repository";
-import { type EventService, createEventService } from "@/server/event/service";
+import { getEventService } from "@/server/event/service-factory";
+import { type EventService } from "@/server/event/service";
 import { jsonResponse, readJsonPayload } from "@/server/http/json";
 import { unauthorizedProblem, validationProblem } from "@/server/http/problem";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
@@ -19,7 +18,7 @@ export interface EventsRouteDependencies {
 
 const dependencies: EventsRouteDependencies = {
   getAccountSummary,
-  getService: () => createEventService(createEventRepository(getDatabase())),
+  getService: getEventService,
   createCorrelationId: correlationIdFrom,
 };
 

@@ -24,6 +24,8 @@ function record(overrides: Partial<EventRecord> = {}): EventRecord {
     recurrence: null,
     status: "confirmed",
     origin: "local",
+    googleCalendarId: null,
+    googleEventId: null,
     version: 1,
     idempotencyKey: KEY,
     createdAt: new Date("2026-07-20T10:00:00.000Z"),
@@ -164,6 +166,119 @@ describe("createEventService.update", () => {
     const result = await service.update("user_1", ID, updateRequest);
 
     expect(result).toMatchObject({ ok: false, reason: "not_found" });
+  });
+
+  it("routes a recurring-series edit to Google instead of applying it", async () => {
+    const update = vi.fn();
+    const service = createEventService(
+      repository({
+        getById: vi
+          .fn()
+          .mockResolvedValue(record({ recurringEventId: "series-1" })),
+        update,
+      }),
+    );
+
+    const result = await service.update("user_1", ID, updateRequest);
+
+    expect(result).toMatchObject({ ok: false, reason: "recurring_series" });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("exports an edit to an already mirrored event to its own calendar", async () => {
+    const update = vi.fn().mockResolvedValue(record({ version: 2 }));
+    const writableCalendar = {
+      get: vi.fn().mockResolvedValue({ googleCalendarId: "writable@x" }),
+    };
+    const service = createEventService(
+      repository({
+        getById: vi.fn().mockResolvedValue(
+          record({
+            origin: "google",
+            googleCalendarId: "mirror@x",
+            googleEventId: "g-1",
+          }),
+        ),
+        update,
+      }),
+      { writableCalendar },
+    );
+
+    await service.update("user_1", ID, updateRequest);
+
+    // A mirrored event exports to its own calendar; the writable target is not
+    // consulted.
+    expect(update).toHaveBeenCalledWith("user_1", ID, expect.anything(), {
+      googleCalendarId: "mirror@x",
+    });
+    expect(writableCalendar.get).not.toHaveBeenCalled();
+  });
+
+  it("exports a local edit to the selected writable calendar", async () => {
+    const update = vi.fn().mockResolvedValue(record({ version: 2 }));
+    const writableCalendar = {
+      get: vi.fn().mockResolvedValue({ googleCalendarId: "writable@x" }),
+    };
+    const service = createEventService(
+      repository({ getById: vi.fn().mockResolvedValue(record()), update }),
+      { writableCalendar },
+    );
+
+    await service.update("user_1", ID, updateRequest);
+
+    expect(update).toHaveBeenCalledWith("user_1", ID, expect.anything(), {
+      googleCalendarId: "writable@x",
+    });
+  });
+
+  it("keeps a local edit local when no writable calendar is selected", async () => {
+    const update = vi.fn().mockResolvedValue(record({ version: 2 }));
+    const writableCalendar = { get: vi.fn().mockResolvedValue(null) };
+    const service = createEventService(
+      repository({ getById: vi.fn().mockResolvedValue(record()), update }),
+      { writableCalendar },
+    );
+
+    await service.update("user_1", ID, updateRequest);
+
+    expect(update).toHaveBeenCalledWith(
+      "user_1",
+      ID,
+      expect.objectContaining({ version: 2 }),
+    );
+  });
+});
+
+describe("createEventService.create export decisioning", () => {
+  it("exports a new local event to the selected writable calendar", async () => {
+    const insert = vi.fn().mockResolvedValue(record());
+    const writableCalendar = {
+      get: vi.fn().mockResolvedValue({ googleCalendarId: "writable@x" }),
+    };
+    const service = createEventService(repository({ insert }), {
+      writableCalendar,
+    });
+
+    await service.create("user_1", createRequest);
+
+    expect(insert).toHaveBeenCalledWith("user_1", expect.anything(), {
+      googleCalendarId: "writable@x",
+    });
+  });
+
+  it("keeps a new local event local when no writable calendar is selected", async () => {
+    const insert = vi.fn().mockResolvedValue(record());
+    const writableCalendar = { get: vi.fn().mockResolvedValue(null) };
+    const service = createEventService(repository({ insert }), {
+      writableCalendar,
+    });
+
+    await service.create("user_1", createRequest);
+
+    expect(insert).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({ id: ID }),
+    );
   });
 });
 

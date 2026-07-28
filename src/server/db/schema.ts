@@ -380,6 +380,62 @@ export const eventTombstone = pgTable("event_tombstone", {
 });
 
 /**
+ * The Event export outbox (MEM-42): the outbound counterpart to
+ * {@link calendarSyncJob}. When Rails accepts a local Event mutation destined for
+ * Google — a new local Event with a writable calendar, an edit to an already
+ * mirrored Event, or a confirmed deletion — it records exactly one job here in
+ * the same transaction as the mutation, then hands it to the durable Inngest
+ * exporter. The unique `(user_id, event_id, operation)` index makes enqueue a
+ * re-arm: a repeated mutation resets the existing job to `pending` instead of
+ * piling up duplicates, and the exporter reads the Event's current state at run
+ * time, so at most one `upsert` and one `delete` job ever exist per Event and a
+ * retry never creates a duplicate Google Event. `operation` is a constrained
+ * text union ("upsert" | "delete"); `google_calendar_id`/`google_event_id`
+ * capture the write target and — for a delete, whose Event row is already gone —
+ * the provider identity to remove. `status` is "pending" | "processing" |
+ * "completed" | "failed" | "skipped"; `attempts` and `last_error_code` give
+ * failure visibility without ever recording titles or provider payloads.
+ */
+export const eventExportJob = pgTable(
+  "event_export_job",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // Not a foreign key: a `delete` job must outlive the Event row it removes.
+    eventId: uuid("event_id").notNull(),
+    operation: text("operation").notNull(),
+    googleCalendarId: text("google_calendar_id"),
+    googleEventId: text("google_event_id"),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One upsert job and one delete job per Event: a repeated mutation re-arms
+    // the existing row to pending rather than enqueuing a second job.
+    uniqueIndex("event_export_job_identity_idx").on(
+      table.userId,
+      table.eventId,
+      table.operation,
+    ),
+    // Drains the outbox oldest-first over the pending rows.
+    index("event_export_job_status_created_idx").on(
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
+/**
  * A Thought owned by one account: lightweight, searchable, non-actionable
  * reference material. `source_inbox_item_id` records the Inbox Item it was
  * classified from, if any. Soft-deleted via `deleted_at` with a purge index.

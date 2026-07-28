@@ -86,6 +86,7 @@ try {
       "src/server/calendar/repository.integration.test.ts",
       "src/server/calendar/sync-job-repository.integration.test.ts",
       "src/server/event/repository.integration.test.ts",
+      "src/server/event/export-job-repository.integration.test.ts",
     ],
     environment,
   );

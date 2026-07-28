@@ -8,6 +8,7 @@ export type ProblemCode =
   | "conflict"
   | "not_found"
   | "gone"
+  | "recurring_series_edit"
   | "calendar_reauth_required";
 
 export interface ProblemDetails {
@@ -108,6 +109,25 @@ export function goneProblem(correlationId: string): Response {
     status: 410,
     code: "gone",
     detail: "This record was deleted and cannot be changed.",
+    correlationId,
+    retryable: false,
+  });
+}
+
+/**
+ * The Event belongs to a recurring series. Rails does not implement recurring
+ * edits in the MVP and routes the user to Google Calendar instead, so the edit
+ * is refused rather than partially applied. The client keeps its local copy and
+ * surfaces a "edit in Google Calendar" affordance.
+ */
+export function recurringSeriesProblem(correlationId: string): Response {
+  return problemResponse({
+    type: "https://rails.app/problems/recurring-series-edit",
+    title: "Edit recurring events in Google Calendar",
+    status: 422,
+    code: "recurring_series_edit",
+    detail:
+      "Recurring events are edited in Google Calendar. Your change was kept for review.",
     correlationId,
     retryable: false,
   });

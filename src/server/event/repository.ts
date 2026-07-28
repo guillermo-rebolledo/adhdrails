@@ -1,10 +1,13 @@
-import { and, asc, eq, gt, gte, lt, or } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, or } from "drizzle-orm";
 
+import { isRecurringEvent } from "@/domain/calendar/export";
 import type { MirrorEvent } from "@/domain/calendar/import";
 import type { EventCreateRequest, EventPatch } from "@/domain/event/event";
 import type { EventCursor } from "@/domain/calendar/later";
 import type { Database } from "@/server/db/connection";
 import { event, eventTombstone } from "@/server/db/schema";
+
+import { enqueueExportJob } from "./export-job-repository";
 
 export interface EventRecord {
   id: string;
@@ -20,10 +23,22 @@ export interface EventRecord {
   recurrence: string[] | null;
   status: string;
   origin: string;
+  googleCalendarId: string | null;
+  googleEventId: string | null;
   version: number;
   idempotencyKey: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * The write target for an Event mutation that should propagate to Google. The
+ * service supplies it only when an export is warranted (a local Event with a
+ * writable calendar, or an edit to an already mirrored Event); the repository
+ * then enqueues the outbox job atomically with the mutation.
+ */
+export interface EventExportSpec {
+  googleCalendarId: string;
 }
 
 const recordColumns = {
@@ -40,6 +55,8 @@ const recordColumns = {
   recurrence: event.recurrence,
   status: event.status,
   origin: event.origin,
+  googleCalendarId: event.googleCalendarId,
+  googleEventId: event.googleEventId,
   version: event.version,
   idempotencyKey: event.idempotencyKey,
   createdAt: event.createdAt,
@@ -92,58 +109,144 @@ export function createEventRepository(database: Database) {
       return row !== undefined;
     },
 
+    /**
+     * Inserts a new local Event. When `exportSpec` is supplied — a writable
+     * calendar exists — an `upsert` export job is enqueued in the same
+     * transaction, so the outbox row is durable if and only if the Event itself
+     * commits (the transactional-outbox guarantee).
+     */
     async insert(
       userId: string,
       input: EventCreateRequest,
+      exportSpec?: EventExportSpec,
     ): Promise<EventRecord> {
-      const [row] = await database
-        .insert(event)
-        .values({
-          id: input.id,
-          userId,
-          title: input.title,
-          startAt: new Date(input.startAt),
-          endAt: new Date(input.endAt),
-          startTimeZone: input.startTimeZone,
-          endTimeZone: input.endTimeZone,
-          idempotencyKey: input.idempotencyKey,
-        })
-        .returning(recordColumns);
+      const values = {
+        id: input.id,
+        userId,
+        title: input.title,
+        startAt: new Date(input.startAt),
+        endAt: new Date(input.endAt),
+        startTimeZone: input.startTimeZone,
+        endTimeZone: input.endTimeZone,
+        idempotencyKey: input.idempotencyKey,
+      };
 
-      return row;
+      if (!exportSpec) {
+        const [row] = await database
+          .insert(event)
+          .values(values)
+          .returning(recordColumns);
+        return row;
+      }
+
+      return database.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(event)
+          .values(values)
+          .returning(recordColumns);
+        await enqueueExportJob(tx, {
+          userId,
+          eventId: input.id,
+          operation: "upsert",
+          googleCalendarId: exportSpec.googleCalendarId,
+        });
+        return row;
+      });
     },
 
+    /**
+     * Applies an update and bumps the version. When `exportSpec` is supplied the
+     * change is propagated to Google via an `upsert` export job enqueued in the
+     * same transaction.
+     */
     async update(
       userId: string,
       id: string,
       write: EventUpdateWrite,
+      exportSpec?: EventExportSpec,
     ): Promise<EventRecord> {
       const { patch } = write;
-      const [row] = await database
+      const set = {
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.startAt !== undefined
+          ? { startAt: new Date(patch.startAt) }
+          : {}),
+        ...(patch.endAt !== undefined ? { endAt: new Date(patch.endAt) } : {}),
+        ...(patch.startTimeZone !== undefined
+          ? { startTimeZone: patch.startTimeZone }
+          : {}),
+        ...(patch.endTimeZone !== undefined
+          ? { endTimeZone: patch.endTimeZone }
+          : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        version: write.version,
+        idempotencyKey: write.idempotencyKey,
+        updatedAt: new Date(),
+      };
+      const where = and(eq(event.userId, userId), eq(event.id, id));
+
+      if (!exportSpec) {
+        const [row] = await database
+          .update(event)
+          .set(set)
+          .where(where)
+          .returning(recordColumns);
+        return row;
+      }
+
+      return database.transaction(async (tx) => {
+        const [row] = await tx
+          .update(event)
+          .set(set)
+          .where(where)
+          .returning(recordColumns);
+        await enqueueExportJob(tx, {
+          userId,
+          eventId: id,
+          operation: "upsert",
+          googleCalendarId: exportSpec.googleCalendarId,
+        });
+        return row;
+      });
+    },
+
+    /**
+     * Writes Google's provider identity back onto a local Event after it is
+     * created upstream, so the mirror sync recognizes it by that identity and
+     * never imports a duplicate. Bookkeeping only: it never bumps the version.
+     */
+    async linkGoogleIdentity(
+      userId: string,
+      id: string,
+      identity: { googleCalendarId: string; googleEventId: string },
+    ): Promise<void> {
+      await database
         .update(event)
         .set({
-          ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.startAt !== undefined
-            ? { startAt: new Date(patch.startAt) }
-            : {}),
-          ...(patch.endAt !== undefined
-            ? { endAt: new Date(patch.endAt) }
-            : {}),
-          ...(patch.startTimeZone !== undefined
-            ? { startTimeZone: patch.startTimeZone }
-            : {}),
-          ...(patch.endTimeZone !== undefined
-            ? { endTimeZone: patch.endTimeZone }
-            : {}),
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          version: write.version,
-          idempotencyKey: write.idempotencyKey,
+          googleCalendarId: identity.googleCalendarId,
+          googleEventId: identity.googleEventId,
           updatedAt: new Date(),
         })
-        .where(and(eq(event.userId, userId), eq(event.id, id)))
-        .returning(recordColumns);
+        .where(and(eq(event.userId, userId), eq(event.id, id)));
+    },
 
-      return row;
+    /**
+     * Local Events not yet mirrored to Google: `origin` local with no provider
+     * identity. Drives the explicit export-on-reconnect choice (MEM-42), which
+     * enqueues an export for each when the user grants a writable calendar.
+     */
+    async listUnexportedLocalEvents(userId: string): Promise<EventRecord[]> {
+      return database
+        .select(recordColumns)
+        .from(event)
+        .where(
+          and(
+            eq(event.userId, userId),
+            eq(event.origin, "local"),
+            isNull(event.googleEventId),
+          ),
+        )
+        .orderBy(asc(event.startAt), asc(event.id));
     },
 
     /**
@@ -230,9 +333,29 @@ export function createEventRepository(database: Database) {
         );
     },
 
-    /** Deletes the Event and records a tombstone in one transaction. */
+    /**
+     * Deletes the Event, records a tombstone, and — when the Event was mirrored
+     * to Google (it carries a provider identity) — enqueues a `delete` export
+     * job, all in one transaction. The job captures the provider identity from
+     * the row before it is removed, because the delete must reach Google after
+     * the local row (and its identity) are gone. A recurring Event never
+     * propagates its delete: Rails does not partially implement recurrence, so a
+     * series deletion routes to Google. The local row is still removed; the next
+     * mirror sync re-imports it while it remains on Google (Google authoritative).
+     */
     async remove(userId: string, id: string): Promise<void> {
       await database.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({
+            googleCalendarId: event.googleCalendarId,
+            googleEventId: event.googleEventId,
+            recurringEventId: event.recurringEventId,
+            recurrence: event.recurrence,
+          })
+          .from(event)
+          .where(and(eq(event.userId, userId), eq(event.id, id)))
+          .limit(1);
+
         await tx
           .delete(event)
           .where(and(eq(event.userId, userId), eq(event.id, id)));
@@ -240,6 +363,20 @@ export function createEventRepository(database: Database) {
           .insert(eventTombstone)
           .values({ id, userId })
           .onConflictDoNothing();
+
+        if (
+          existing?.googleCalendarId &&
+          existing.googleEventId &&
+          !isRecurringEvent(existing)
+        ) {
+          await enqueueExportJob(tx, {
+            userId,
+            eventId: id,
+            operation: "delete",
+            googleCalendarId: existing.googleCalendarId,
+            googleEventId: existing.googleEventId,
+          });
+        }
       });
     },
 

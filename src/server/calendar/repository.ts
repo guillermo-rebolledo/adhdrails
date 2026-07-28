@@ -305,6 +305,28 @@ export function createCalendarRepository(database: Database) {
         );
     },
 
+    /**
+     * The account's single writable calendar as an export destination, or null
+     * if none is selected. The partial unique index guarantees at most one, so a
+     * Rails-created Event always has an unambiguous target (MEM-42).
+     */
+    async getWritableCalendar(
+      userId: string,
+    ): Promise<{ googleCalendarId: string } | null> {
+      const [row] = await database
+        .select({ googleCalendarId: calendarSelection.googleCalendarId })
+        .from(calendarSelection)
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.isWritable, true),
+          ),
+        )
+        .limit(1);
+
+      return row ?? null;
+    },
+
     /** One calendar's sync state (cursor + watch), or null if the account has none. */
     async getCalendar(
       userId: string,
