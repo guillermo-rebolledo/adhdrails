@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, gte, isNull, lt, or } from "drizzle-orm";
 
+import { isRecurringEvent } from "@/domain/calendar/export";
 import type { MirrorEvent } from "@/domain/calendar/import";
 import type { EventCreateRequest, EventPatch } from "@/domain/event/event";
 import type { EventCursor } from "@/domain/calendar/later";
@@ -337,7 +338,10 @@ export function createEventRepository(database: Database) {
      * to Google (it carries a provider identity) — enqueues a `delete` export
      * job, all in one transaction. The job captures the provider identity from
      * the row before it is removed, because the delete must reach Google after
-     * the local row (and its identity) are gone.
+     * the local row (and its identity) are gone. A recurring Event never
+     * propagates its delete: Rails does not partially implement recurrence, so a
+     * series deletion routes to Google. The local row is still removed; the next
+     * mirror sync re-imports it while it remains on Google (Google authoritative).
      */
     async remove(userId: string, id: string): Promise<void> {
       await database.transaction(async (tx) => {
@@ -345,6 +349,8 @@ export function createEventRepository(database: Database) {
           .select({
             googleCalendarId: event.googleCalendarId,
             googleEventId: event.googleEventId,
+            recurringEventId: event.recurringEventId,
+            recurrence: event.recurrence,
           })
           .from(event)
           .where(and(eq(event.userId, userId), eq(event.id, id)))
@@ -358,7 +364,11 @@ export function createEventRepository(database: Database) {
           .values({ id, userId })
           .onConflictDoNothing();
 
-        if (existing?.googleCalendarId && existing.googleEventId) {
+        if (
+          existing?.googleCalendarId &&
+          existing.googleEventId &&
+          !isRecurringEvent(existing)
+        ) {
           await enqueueExportJob(tx, {
             userId,
             eventId: id,

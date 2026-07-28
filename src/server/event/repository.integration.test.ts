@@ -267,6 +267,24 @@ describe.skipIf(!connection)(
       expect(await exportJobs(USER_IDS[0])).toHaveLength(0);
     });
 
+    it("routes a recurring event's deletion to Google (no delete export)", async () => {
+      // A mirrored recurring instance: deleting it in Rails must not push a
+      // Google delete — recurrence is handled in Google.
+      await repository().upsertMirror(
+        USER_IDS[0],
+        mirror({
+          googleEventId: "g-recurring-1",
+          recurringEventId: "series-1",
+        }),
+      );
+      const [row] = await mirrorRows(USER_IDS[0]);
+
+      await repository().remove(USER_IDS[0], row.id);
+
+      expect(await mirrorRows(USER_IDS[0])).toHaveLength(0);
+      expect(await exportJobs(USER_IDS[0])).toHaveLength(0);
+    });
+
     it("links a Google identity without bumping the version", async () => {
       const inserted = await repository().insert(USER_IDS[0], createInput());
       await repository().linkGoogleIdentity(USER_IDS[0], LOCAL_EVENT_ID, {

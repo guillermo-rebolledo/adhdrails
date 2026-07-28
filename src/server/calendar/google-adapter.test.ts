@@ -232,7 +232,6 @@ const writeBody = {
   summary: "Standup",
   start: { dateTime: "2026-07-27T13:00:00.000Z", timeZone: "America/New_York" },
   end: { dateTime: "2026-07-27T13:30:00.000Z", timeZone: "America/New_York" },
-  status: "confirmed" as const,
 };
 
 describe("insertEvent", () => {

@@ -13,7 +13,6 @@ function timedEvent(overrides: Partial<ExportableEvent> = {}): ExportableEvent {
     endAt: "2026-07-27T13:30:00.000Z",
     startTimeZone: "America/New_York",
     endTimeZone: "America/New_York",
-    status: "confirmed",
     isAllDay: false,
     recurringEventId: null,
     recurrence: null,
@@ -37,7 +36,6 @@ describe("buildGoogleEventWrite", () => {
           dateTime: "2026-07-27T13:30:00.000Z",
           timeZone: "America/New_York",
         },
-        status: "confirmed",
       },
     });
   });

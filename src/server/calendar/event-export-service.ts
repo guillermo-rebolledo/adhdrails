@@ -2,7 +2,6 @@ import {
   buildGoogleEventWrite,
   type ExportableEvent,
 } from "@/domain/calendar/export";
-import type { EventStatus } from "@/domain/event/event";
 import type { EventRepository } from "@/server/event/repository";
 import type { ExportJobRecord } from "@/server/event/export-job-repository";
 
@@ -48,24 +47,6 @@ export type EventExportResult =
 export function createEventExportService(deps: EventExportDependencies) {
   const { calendarRepository, eventRepository, adapter, cipher } = deps;
 
-  async function accessTokenFor(
-    userId: string,
-  ): Promise<
-    { ok: true; accessToken: string } | { ok: false; reason: "unauthorized" }
-  > {
-    const connection = await calendarRepository.getConnection(userId);
-    if (!connection) {
-      return { ok: false, reason: "unauthorized" };
-    }
-    try {
-      const refreshToken = cipher.decrypt(connection.encryptedRefreshToken);
-      const token = await adapter.refreshAccessToken({ refreshToken });
-      return { ok: true, accessToken: token.accessToken };
-    } catch {
-      return { ok: false, reason: "unauthorized" };
-    }
-  }
-
   return {
     async exportEvent(job: ExportJobRecord): Promise<EventExportResult> {
       const connection = await calendarRepository.getConnection(job.userId);
@@ -74,11 +55,15 @@ export function createEventExportService(deps: EventExportDependencies) {
         return { ok: false, reason: "not_connected" };
       }
 
-      const auth = await accessTokenFor(job.userId);
-      if (!auth.ok) {
-        return { ok: false, reason: auth.reason };
+      let accessToken: string;
+      try {
+        const refreshToken = cipher.decrypt(connection.encryptedRefreshToken);
+        const token = await adapter.refreshAccessToken({ refreshToken });
+        accessToken = token.accessToken;
+      } catch {
+        // The stored grant can no longer refresh — revoked or expired.
+        return { ok: false, reason: "unauthorized" };
       }
-      const { accessToken } = auth;
 
       if (job.operation === "delete") {
         if (!job.googleCalendarId || !job.googleEventId) {
@@ -106,7 +91,6 @@ export function createEventExportService(deps: EventExportDependencies) {
         endAt: event.endAt.toISOString(),
         startTimeZone: event.startTimeZone,
         endTimeZone: event.endTimeZone,
-        status: event.status as EventStatus,
         isAllDay: event.isAllDay,
         recurringEventId: event.recurringEventId,
         recurrence: event.recurrence,

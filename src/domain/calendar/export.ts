@@ -1,5 +1,3 @@
-import { type EventStatus } from "@/domain/event/event";
-
 /**
  * Pure rules for the outbound direction of Calendar synchronization (MEM-42):
  * translating a Rails Event into the Google Calendar `events` write body, and
@@ -25,7 +23,6 @@ export interface ExportableEvent {
   endAt: string;
   startTimeZone: string;
   endTimeZone: string;
-  status: EventStatus;
   isAllDay: boolean;
   recurringEventId: string | null;
   recurrence: string[] | null;
@@ -39,15 +36,14 @@ export interface GoogleEventDateTime {
 
 /**
  * The request body Rails sends to `events.insert`/`events.patch`. Only the
- * fields Rails owns are sent: an insert or patch that omits everything else
- * leaves Google's other fields untouched, so a patch never clobbers attendees,
- * reminders, or description that Google alone manages.
+ * fields Rails owns are sent — title and timing — so a patch never clobbers the
+ * attendees, reminders, description, or `status` that Google alone manages. A
+ * new Event omits `status`, which Google defaults to `confirmed`.
  */
 export interface GoogleEventWriteBody {
   summary: string;
   start: GoogleEventDateTime;
   end: GoogleEventDateTime;
-  status?: EventStatus;
 }
 
 /**
@@ -98,7 +94,6 @@ export function buildGoogleEventWrite(
       summary: event.title,
       start: { dateTime: event.startAt, timeZone: event.startTimeZone },
       end: { dateTime: event.endAt, timeZone: event.endTimeZone },
-      status: event.status,
     },
   };
 }
