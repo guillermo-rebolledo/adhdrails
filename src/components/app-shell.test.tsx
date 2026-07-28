@@ -2,9 +2,11 @@
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "./app-shell";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 describe("application shell", () => {
   it("provides the required destinations in desktop and mobile navigation", async () => {
@@ -27,6 +29,10 @@ describe("application shell", () => {
     expect(desktopNavigation).toHaveTextContent("Search");
     expect(desktopNavigation).toHaveTextContent("Settings");
     expect(screen.getAllByRole("main")).toHaveLength(1);
+
+    expect(
+      screen.getByRole("button", { name: "Open command menu" }),
+    ).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "Open navigation menu" }),
