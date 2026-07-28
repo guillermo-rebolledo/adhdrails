@@ -1,3 +1,4 @@
+import { inboxTitleSchema } from "@/domain/inbox/capture";
 import {
   applyFocusAction,
   type FocusAction,
@@ -7,7 +8,12 @@ import {
   toTransitionRequest,
 } from "@/domain/focus/session";
 
-import type { LocalFocusSession, OutboxEntry, RailsDatabase } from "./db";
+import type {
+  LocalFocusSession,
+  LocalInboxItem,
+  OutboxEntry,
+  RailsDatabase,
+} from "./db";
 import { nextMutationSequence } from "./mutation-sequence";
 
 /**
@@ -149,6 +155,7 @@ export async function transitionFocus(
           next,
           pending.baseVersion ?? local.version,
           pending.idempotencyKey,
+          local.distractionCount,
         ),
       });
       return;
@@ -161,7 +168,12 @@ export async function transitionFocus(
       entityId: id,
       idempotencyKey,
       baseVersion: local.version,
-      payload: toTransitionRequest(next, local.version, idempotencyKey),
+      payload: toTransitionRequest(
+        next,
+        local.version,
+        idempotencyKey,
+        local.distractionCount,
+      ),
       status: "pending",
       attempts: 0,
       lastError: null,
@@ -196,4 +208,154 @@ export function completeFocus(
   options: FocusCommandOptions = {},
 ): Promise<LocalFocusSession | null> {
   return transitionFocus(db, id, "complete", options);
+}
+
+export interface CaptureDistractionResult {
+  item: LocalInboxItem;
+  session: LocalFocusSession | null;
+}
+
+/**
+ * Captures a distraction during focus without leaving the Task. In one atomic
+ * Dexie transaction it saves the distraction as an unseen Inbox Item (with its
+ * own create outbox entry, exactly like Quick Capture) and bumps the active
+ * session's captured-distraction count. The count rides the session's existing
+ * transition channel — the same last-write-wins update a pause/resume/complete
+ * uses — so it survives offline collapse without a separate mutation type. The
+ * timing is untouched: capturing a distraction never pauses the count-up.
+ *
+ * Returns both the optimistic Inbox Item and the updated session so the caller
+ * can acknowledge within its performance budget and return attention to focus.
+ */
+export async function captureDistraction(
+  db: RailsDatabase,
+  sessionId: string,
+  rawTitle: string,
+  options: FocusCommandOptions = {},
+): Promise<CaptureDistractionResult> {
+  const title = inboxTitleSchema.parse(rawTitle);
+  const itemId = options.id ?? crypto.randomUUID();
+  const captureKey = crypto.randomUUID();
+  const transitionKey = options.idempotencyKey ?? crypto.randomUUID();
+  const now = options.now ?? new Date().toISOString();
+
+  const item: LocalInboxItem = {
+    id: itemId,
+    title,
+    seen: false,
+    version: 1,
+    createdAt: now,
+    syncState: "pending",
+  };
+
+  let session: LocalFocusSession | null = null;
+
+  await db.transaction(
+    "rw",
+    db.inboxItems,
+    db.focusSessions,
+    db.outbox,
+    async () => {
+      await db.inboxItems.add(item);
+      await db.outbox.add({
+        id: options.outboxId ?? crypto.randomUUID(),
+        entity: "inbox_item",
+        operation: "create",
+        entityId: itemId,
+        idempotencyKey: captureKey,
+        baseVersion: null,
+        payload: { id: itemId, title, idempotencyKey: captureKey },
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        createdAt: now,
+        sequence: nextMutationSequence(),
+      });
+
+      const local = await db.focusSessions.get(sessionId);
+      // Only an active session tracks distractions; if it already ended the
+      // Inbox Item is still saved, which is what matters for trust.
+      if (!local || local.status === "completed") {
+        return;
+      }
+
+      session = {
+        ...local,
+        distractionCount: local.distractionCount + 1,
+        syncState: "pending",
+      };
+      await db.focusSessions.put(session);
+
+      // Carry the new count on the session's absolute state, coalescing with any
+      // pending transition so timing and count stay in one last-write-wins entry.
+      const state = focusStateOf(local);
+      const [pending] = await db.outbox
+        .filter(
+          (entry) =>
+            entry.entityId === sessionId &&
+            entry.operation === "update" &&
+            entry.status === "pending",
+        )
+        .toArray();
+
+      if (pending) {
+        await db.outbox.update(pending.id, {
+          payload: toTransitionRequest(
+            state,
+            pending.baseVersion ?? local.version,
+            pending.idempotencyKey,
+            session.distractionCount,
+          ),
+        });
+        return;
+      }
+
+      await db.outbox.add({
+        id: crypto.randomUUID(),
+        entity: "focus_session",
+        operation: "update",
+        entityId: sessionId,
+        idempotencyKey: transitionKey,
+        baseVersion: local.version,
+        payload: toTransitionRequest(
+          state,
+          local.version,
+          transitionKey,
+          session.distractionCount,
+        ),
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        createdAt: now,
+        sequence: nextMutationSequence(),
+      });
+    },
+  );
+
+  return { item, session };
+}
+
+/**
+ * Reverses a just-completed session within its Undo window. The completion was
+ * acknowledged locally but not yet flushed, so undoing it removes the pending
+ * completion transition and restores the exact pre-completion snapshot — the
+ * count-up resumes as if the session never ended. Because a delivered completion
+ * is terminal on the server, callers must offer Undo *before* syncing.
+ */
+export async function undoFocusCompletion(
+  db: RailsDatabase,
+  prior: LocalFocusSession,
+): Promise<void> {
+  await db.transaction("rw", db.focusSessions, db.outbox, async () => {
+    const pendingUpdates = await db.outbox
+      .filter(
+        (entry) =>
+          entry.entityId === prior.id &&
+          entry.operation === "update" &&
+          entry.status === "pending",
+      )
+      .toArray();
+    await db.outbox.bulkDelete(pendingUpdates.map((entry) => entry.id));
+    await db.focusSessions.put(prior);
+  });
 }

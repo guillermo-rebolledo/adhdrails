@@ -49,6 +49,7 @@ export interface FocusSessionUpdateWrite {
   accumulatedSeconds: number;
   lastResumedAt: Date | null;
   completedAt: Date | null;
+  distractionCount: number;
   version: number;
   idempotencyKey: string;
 }
@@ -124,6 +125,7 @@ export function createFocusSessionRepository(database: Database) {
           accumulatedSeconds: write.accumulatedSeconds,
           lastResumedAt: write.lastResumedAt,
           completedAt: write.completedAt,
+          distractionCount: write.distractionCount,
           version: write.version,
           idempotencyKey: write.idempotencyKey,
           updatedAt: new Date(),

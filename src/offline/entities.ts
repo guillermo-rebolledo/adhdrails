@@ -94,12 +94,16 @@ const thoughtReconciler: EntityReconciler = {
     const serverVersion = server.version as number;
     if (local.version === serverVersion) {
       await db.thoughts.put({
-        id: server.id as string,
+        // Spread local first so an in-flight optimistic deletion (`deletedAt`
+        // stamped locally but not yet synced) survives a create/update
+        // confirmation that lands mid-undo — resurrecting it would be an
+        // accidental loss. This mirrors the Task/Inbox/Event reconcilers, which
+        // preserve `deletedAt` the same way.
+        ...local,
         title: server.title as string,
         body: server.body as string,
         sourceInboxItemId: (server.sourceInboxItemId as string | null) ?? null,
         version: serverVersion,
-        deletedAt: (server.deletedAt as string | null) ?? null,
         createdAt: server.createdAt as string,
         updatedAt: server.updatedAt as string,
         syncState: "synced",

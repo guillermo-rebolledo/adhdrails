@@ -15,6 +15,14 @@ export async function pullThoughts(db: RailsDatabase): Promise<void> {
   await db.transaction("rw", db.thoughts, async () => {
     for (const thought of thoughts) {
       const local = await db.thoughts.get(thought.id);
+      // An optimistic deletion in its Undo window is stamped `deletedAt` locally
+      // but not yet synced, so the server still returns the Thought. Overwriting
+      // it here would clear `deletedAt` and resurrect the Thought mid-undo — an
+      // accidental loss of the user's intent. Leave any locally-deleted Thought
+      // alone; the deletion (or its Undo) reconciles through the outbox instead.
+      if (local?.deletedAt) {
+        continue;
+      }
       if (
         !local ||
         (local.syncState === "synced" && thought.version > local.version)

@@ -161,6 +161,7 @@ export function createFocusSessionService(
           input.lastResumedAt === null ? null : new Date(input.lastResumedAt),
         completedAt:
           input.completedAt === null ? null : new Date(input.completedAt),
+        distractionCount: input.distractionCount,
         version: existing!.version + 1,
         idempotencyKey: input.idempotencyKey,
       });

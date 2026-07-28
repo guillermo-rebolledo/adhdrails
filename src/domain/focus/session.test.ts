@@ -4,6 +4,7 @@ import {
   applyFocusAction,
   elapsedSeconds,
   type FocusSessionState,
+  hasReachedEstimate,
   isActiveFocusStatus,
   isFocusActionAllowed,
   resolveFocusStart,
@@ -151,14 +152,32 @@ describe("toTransitionRequest", () => {
       "pause",
       "2026-07-27T14:00:40.000Z",
     );
-    expect(toTransitionRequest(paused, 3, "key-x")).toEqual({
+    expect(toTransitionRequest(paused, 3, "key-x", 2)).toEqual({
       idempotencyKey: "key-x",
       baseVersion: 3,
       status: "paused",
       accumulatedSeconds: 45,
       lastResumedAt: null,
       completedAt: null,
+      distractionCount: 2,
     });
+  });
+});
+
+describe("hasReachedEstimate", () => {
+  it("is false when the Task carries no estimate", () => {
+    expect(hasReachedEstimate(100_000, null)).toBe(false);
+  });
+
+  it("is false before the estimate and true once elapsed reaches it", () => {
+    // A 25-minute estimate is 1500 seconds.
+    expect(hasReachedEstimate(1499, 25)).toBe(false);
+    expect(hasReachedEstimate(1500, 25)).toBe(true);
+    expect(hasReachedEstimate(3600, 25)).toBe(true);
+  });
+
+  it("treats a non-positive estimate as no estimate", () => {
+    expect(hasReachedEstimate(60, 0)).toBe(false);
   });
 });
 
