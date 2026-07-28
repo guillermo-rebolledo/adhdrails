@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAreaSend } from "./area-send";
 import { getClientDatabase, type OutboxEntry, type RailsDatabase } from "./db";
 import { createEventSend } from "./event-send";
+import { createFocusSessionSend } from "./focus-send";
 import { createInboxSend } from "./inbox-send";
 import { createThoughtSend } from "./outbox-send";
 import { refreshServerViews } from "./refresh-server-views";
@@ -32,6 +33,7 @@ function createSend(): (entry: OutboxEntry) => Promise<SendResult> {
     thought: createThoughtSend(),
     event: createEventSend(),
     area: createAreaSend(),
+    focus_session: createFocusSessionSend(),
   } as const;
   return (entry) => senders[entry.entity](entry);
 }

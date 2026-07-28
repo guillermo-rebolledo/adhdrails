@@ -102,17 +102,74 @@ describe("FocusNow", () => {
     expect(within(others).getByText("Water the plants")).toBeInTheDocument();
   });
 
-  it("lets the user Start focusing on a task and Stop to step back out", async () => {
+  it("starts a persistent focus session with a count-up timer", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
     await createTask(db, { title: "Write the report" });
     const user = userEvent.setup();
     renderFocusNow();
 
     await user.click(await screen.findByRole("button", { name: "Start" }));
-    expect(screen.getByText("Focusing on")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Stop" }));
-    // Back to the recommendation, ready to Start again.
+    const card = await screen.findByLabelText("Focus session");
+    expect(
+      await within(card).findByText("Write the report"),
+    ).toBeInTheDocument();
+    expect(within(card).getByRole("timer")).toBeInTheDocument();
+    expect(
+      within(card).getByRole("button", { name: "Pause" }),
+    ).toBeInTheDocument();
+
+    // Exactly one active session is persisted.
+    await waitFor(async () =>
+      expect(
+        await db.focusSessions
+          .filter((session) => session.status !== "completed")
+          .toArray(),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("pauses and resumes without silently losing the session", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createTask(db, { title: "Deep work" });
+    const user = userEvent.setup();
+    renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+
+    expect(await screen.findByText("Paused.")).toBeInTheDocument();
+    const [paused] = await db.focusSessions.toArray();
+    expect(paused.status).toBe("paused");
+
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(await screen.findByText(/counting up/i)).toBeInTheDocument();
+    const [resumed] = await db.focusSessions.toArray();
+    expect(resumed.status).toBe("running");
+  });
+
+  it("completes with a calm acknowledgement and never auto-starts another task", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createTask(db, { title: "Only task" });
+    const user = userEvent.setup();
+    renderFocusNow();
+
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+
+    expect(
+      await screen.findByText("Focus complete. Nicely done — take a breath."),
+    ).toBeInTheDocument();
+    // Nothing started on its own — no timer, no new session.
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument();
+
+    await waitFor(async () => {
+      const [session] = await db.focusSessions.toArray();
+      expect(session.status).toBe("completed");
+    });
+
+    // Return to Today steps back to the recommendation, still no auto-start.
+    await user.click(screen.getByRole("button", { name: "Return to Today" }));
     expect(
       await screen.findByRole("button", { name: "Start" }),
     ).toBeInTheDocument();

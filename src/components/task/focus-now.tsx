@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Button } from "@/components/ui/button";
 import { addMinutesToInstant } from "@/domain/calendar/agenda";
 import { formatTime } from "@/domain/calendar/format";
+import { FOCUS_COMPLETED_MESSAGE } from "@/domain/focus/session";
 import {
   computeDeferral,
   type DeferOption,
@@ -14,10 +15,29 @@ import {
   recommendFocus,
 } from "@/domain/task/recommend";
 import { useCurrentEnergy } from "@/hooks/use-current-energy";
+import type { LocalFocusSession } from "@/offline/db";
+import { completeFocus, startFocus } from "@/offline/focus-commands";
 import { updateTask } from "@/offline/task-commands";
 import { useOffline } from "@/offline/provider";
 
 import { EnergyRightNow } from "./energy-right-now";
+import { FocusSession } from "./focus-session";
+
+/**
+ * Picks the one session to treat as active, preferring a session confirmed or
+ * still in flight over one that lost the account-wide race, so a conflict never
+ * hides the real timer.
+ */
+function pickActiveSession(
+  sessions: LocalFocusSession[] | undefined,
+): LocalFocusSession | null {
+  if (!sessions || sessions.length === 0) {
+    return null;
+  }
+  return (
+    sessions.find((session) => session.syncState !== "conflict") ?? sessions[0]
+  );
+}
 
 /** How far ahead to look for commitments that size the estimate-fit window. */
 const COMMITMENT_HORIZON_HOURS = 24;
@@ -70,11 +90,23 @@ export function FocusNow({
     [db, reference, horizonEnd],
   );
 
+  // The account's one active (running or paused) Focus Session, if any.
+  const activeSessions = useLiveQuery(
+    () =>
+      db.focusSessions
+        .filter((session) => session.status !== "completed")
+        .toArray(),
+    [db],
+  );
+  const activeSession = pickActiveSession(activeSessions);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [focusingId, setFocusingId] = useState<string | null>(null);
   const [deferOpen, setDeferOpen] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  // A calm completion acknowledgement, shown after a session ends until the user
+  // deliberately chooses what follows. No Task ever starts automatically.
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
 
   const recommendation = useMemo(
     () =>
@@ -131,6 +163,21 @@ export function FocusNow({
     );
   }
 
+  async function onStart(taskId: string) {
+    // Starting creates the account's only active session; the server resolves a
+    // competing session started elsewhere into a visible conflict on sync.
+    await startFocus(db, { taskId });
+    void sync();
+    setSelectedId(null);
+    setDeferOpen(false);
+  }
+
+  async function onCompleteSession(sessionId: string) {
+    await completeFocus(db, sessionId);
+    void sync();
+    setCompletionNotice(FOCUS_COMPLETED_MESSAGE);
+  }
+
   return (
     <section aria-label="Focus now" className="flex flex-col gap-4">
       <EnergyRightNow energy={energy} onChange={setEnergy} />
@@ -143,29 +190,34 @@ export function FocusNow({
         ) : null}
       </div>
 
-      {displayed === null ? (
+      {completionNotice ? (
+        // A calm acknowledgement after completing a session. Return to Today is
+        // the primary next action; nothing starts on its own.
+        <div
+          aria-label="Focus complete"
+          className="rounded-xl border bg-card p-6 text-card-foreground"
+        >
+          <p className="font-medium" role="status">
+            {completionNotice}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => setCompletionNotice(null)}>
+              Return to Today
+            </Button>
+          </div>
+        </div>
+      ) : activeSession ? (
+        <FocusSession
+          now={now}
+          onComplete={() => onCompleteSession(activeSession.id)}
+          session={activeSession}
+        />
+      ) : displayed === null ? (
         <div className="rounded-xl border bg-card p-6 text-card-foreground">
           <p className="text-muted-foreground">
             Nothing to focus on right now. Capture a thought or add a task when
             you’re ready — there’s no rush.
           </p>
-        </div>
-      ) : focusingId === displayed.id ? (
-        // The Start seam: a calm, explicit "now focusing" state. Completing the
-        // Task and a persistent, server-backed Focus Session (with elapsed time
-        // and distraction capture) arrive in a later slice; here Start simply
-        // marks intent and Stop steps back out.
-        <div
-          aria-label="Focusing"
-          className="rounded-xl border bg-card p-6 text-card-foreground"
-        >
-          <p className="text-sm text-muted-foreground">Focusing on</p>
-          <p className="mt-1 text-lg font-medium">{displayed.title}</p>
-          <div className="mt-4 flex gap-2">
-            <Button onClick={() => setFocusingId(null)} variant="ghost">
-              Stop
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="rounded-xl border bg-card p-6 text-card-foreground">
@@ -180,7 +232,7 @@ export function FocusNow({
           </p>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => setFocusingId(displayed.id)}>Start</Button>
+            <Button onClick={() => onStart(displayed.id)}>Start</Button>
             {isFlexible ? (
               <Button
                 aria-expanded={deferOpen}
@@ -233,7 +285,7 @@ export function FocusNow({
         </div>
       )}
 
-      {others.length > 0 ? (
+      {!activeSession && !completionNotice && others.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-sm font-medium text-muted-foreground">
             Choose another task

@@ -1,4 +1,5 @@
 import type { EventOrigin, EventStatus } from "@/domain/event/event";
+import type { FocusSessionStatus } from "@/domain/focus/session";
 import type { TaskEnergy, TaskStatus } from "@/domain/task/task";
 
 import type { RailsDatabase, SyncEntity, SyncState } from "./db";
@@ -170,10 +171,39 @@ const areaReconciler: EntityReconciler = {
   },
 };
 
+const focusSessionReconciler: EntityReconciler = {
+  async applyServer(db, entityId, server) {
+    const local = await db.focusSessions.get(entityId);
+    if (local) {
+      await db.focusSessions.put({
+        ...local,
+        taskId: server.taskId as string,
+        status: server.status as FocusSessionStatus,
+        accumulatedSeconds: server.accumulatedSeconds as number,
+        lastResumedAt: (server.lastResumedAt as string | null) ?? null,
+        distractionCount: server.distractionCount as number,
+        completedAt: (server.completedAt as string | null) ?? null,
+        version: server.version as number,
+        syncState: "synced",
+      });
+    }
+  },
+  async removeLocal(db, entityId) {
+    await db.focusSessions.delete(entityId);
+  },
+  async markState(db, entityId, state) {
+    const local = await db.focusSessions.get(entityId);
+    if (local && local.syncState !== "synced") {
+      await db.focusSessions.put({ ...local, syncState: state });
+    }
+  },
+};
+
 export const reconcilers: Record<SyncEntity, EntityReconciler> = {
   inbox_item: inboxReconciler,
   task: taskReconciler,
   thought: thoughtReconciler,
   event: eventReconciler,
   area: areaReconciler,
+  focus_session: focusSessionReconciler,
 };
