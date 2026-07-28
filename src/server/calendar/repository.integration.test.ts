@@ -124,6 +124,79 @@ describe.skipIf(!connection)(
       expect(writable[0].googleCalendarId).toBe("b");
     });
 
+    it("stores a per-calendar watch and resolves it back by channel id", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: "primary@example.com",
+        primaryTimeZone: null,
+        calendars: [calendar()],
+      });
+
+      const expiresAt = new Date("2026-08-04T12:00:00.000Z");
+      await repository().saveWatch(USER_IDS[0], "primary@example.com", {
+        channelId: "chan-xyz",
+        resourceId: "res-xyz",
+        token: "watch-token",
+        expiresAt,
+      });
+
+      // The webhook resolves an incoming channel to its owning calendar.
+      const byChannel = await repository().getCalendarByChannel("chan-xyz");
+      expect(byChannel).toMatchObject({
+        userId: USER_IDS[0],
+        googleCalendarId: "primary@example.com",
+        watchToken: "watch-token",
+        watchResourceId: "res-xyz",
+      });
+      expect(byChannel?.watchExpiresAt?.toISOString()).toBe(
+        expiresAt.toISOString(),
+      );
+
+      // An unknown channel resolves to nothing.
+      expect(await repository().getCalendarByChannel("missing")).toBeNull();
+
+      // Clearing the watch removes its routing without deleting the calendar.
+      await repository().clearWatch(USER_IDS[0], "primary@example.com");
+      expect(await repository().getCalendarByChannel("chan-xyz")).toBeNull();
+      const cleared = await repository().getCalendar(
+        USER_IDS[0],
+        "primary@example.com",
+      );
+      expect(cleared?.watchChannelId).toBeNull();
+    });
+
+    it("lists only the account's visible calendars for a renewal sweep", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: "a",
+        primaryTimeZone: null,
+        calendars: [
+          calendar({ googleCalendarId: "a", isVisible: true, primary: true }),
+          calendar({
+            googleCalendarId: "b",
+            isVisible: false,
+            isWritable: false,
+            primary: false,
+          }),
+        ],
+      });
+
+      const visible = await repository().listVisibleCalendarSyncState(
+        USER_IDS[0],
+      );
+      expect(visible.map((c) => c.googleCalendarId)).toEqual(["a"]);
+      // Another account sees none of these.
+      expect(
+        await repository().listVisibleCalendarSyncState(USER_IDS[1]),
+      ).toEqual([]);
+    });
+
     it("deletes the connection and its calendars without touching the user", async () => {
       await repository().saveConnection(USER_IDS[0], {
         status: "connected",

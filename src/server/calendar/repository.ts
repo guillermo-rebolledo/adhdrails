@@ -11,6 +11,32 @@ import { calendarConnection, calendarSelection } from "@/server/db/schema";
 
 import type { EncryptedToken } from "./token-cipher";
 
+/**
+ * The per-calendar synchronization state the incremental sync (MEM-41) needs: the
+ * resume cursor and the push-notification watch, alongside the identity and
+ * timezone the mirror mapping uses. Read by calendar or by watch channel.
+ */
+export interface CalendarSyncRecord {
+  userId: string;
+  googleCalendarId: string;
+  summary: string;
+  timeZone: string | null;
+  isVisible: boolean;
+  syncToken: string | null;
+  watchChannelId: string | null;
+  watchResourceId: string | null;
+  watchToken: string | null;
+  watchExpiresAt: Date | null;
+}
+
+/** The watch metadata Google returns when a channel is opened. */
+export interface SaveWatchInput {
+  channelId: string;
+  resourceId: string;
+  token: string;
+  expiresAt: Date | null;
+}
+
 /** The stored connection row, with the encrypted token grouped for the cipher. */
 export interface ConnectionRecord {
   userId: string;
@@ -63,6 +89,45 @@ function toConnectionRecord(row: {
     connectedAt: row.connectedAt,
   };
 }
+
+function toSyncRecord(row: {
+  userId: string;
+  googleCalendarId: string;
+  summary: string;
+  timeZone: string | null;
+  isVisible: boolean;
+  syncToken: string | null;
+  watchChannelId: string | null;
+  watchResourceId: string | null;
+  watchToken: string | null;
+  watchExpiresAt: Date | null;
+}): CalendarSyncRecord {
+  return {
+    userId: row.userId,
+    googleCalendarId: row.googleCalendarId,
+    summary: row.summary,
+    timeZone: row.timeZone,
+    isVisible: row.isVisible,
+    syncToken: row.syncToken,
+    watchChannelId: row.watchChannelId,
+    watchResourceId: row.watchResourceId,
+    watchToken: row.watchToken,
+    watchExpiresAt: row.watchExpiresAt,
+  };
+}
+
+const syncRecordColumns = {
+  userId: calendarSelection.userId,
+  googleCalendarId: calendarSelection.googleCalendarId,
+  summary: calendarSelection.summary,
+  timeZone: calendarSelection.timeZone,
+  isVisible: calendarSelection.isVisible,
+  syncToken: calendarSelection.syncToken,
+  watchChannelId: calendarSelection.watchChannelId,
+  watchResourceId: calendarSelection.watchResourceId,
+  watchToken: calendarSelection.watchToken,
+  watchExpiresAt: calendarSelection.watchExpiresAt,
+};
 
 function toSelectedCalendar(row: {
   googleCalendarId: string;
@@ -230,6 +295,104 @@ export function createCalendarRepository(database: Database) {
         .set({
           syncToken: input.syncToken,
           lastSyncedAt: input.lastSyncedAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.googleCalendarId, googleCalendarId),
+          ),
+        );
+    },
+
+    /** One calendar's sync state (cursor + watch), or null if the account has none. */
+    async getCalendar(
+      userId: string,
+      googleCalendarId: string,
+    ): Promise<CalendarSyncRecord | null> {
+      const [row] = await database
+        .select(syncRecordColumns)
+        .from(calendarSelection)
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.googleCalendarId, googleCalendarId),
+          ),
+        )
+        .limit(1);
+
+      return row ? toSyncRecord(row) : null;
+    },
+
+    /**
+     * Resolves an incoming notification's watch channel to the calendar it
+     * belongs to. This is the one read not scoped by account: the webhook has no
+     * session, so it authenticates the caller by matching the stored watch token
+     * against the notification's token. Channel ids are globally unique (a
+     * partial unique index), so at most one calendar can match.
+     */
+    async getCalendarByChannel(
+      channelId: string,
+    ): Promise<CalendarSyncRecord | null> {
+      const [row] = await database
+        .select(syncRecordColumns)
+        .from(calendarSelection)
+        .where(eq(calendarSelection.watchChannelId, channelId))
+        .limit(1);
+
+      return row ? toSyncRecord(row) : null;
+    },
+
+    /** The account's visible calendars' sync state, for watch renewal sweeps. */
+    async listVisibleCalendarSyncState(
+      userId: string,
+    ): Promise<CalendarSyncRecord[]> {
+      const rows = await database
+        .select(syncRecordColumns)
+        .from(calendarSelection)
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.isVisible, true),
+          ),
+        )
+        .orderBy(asc(calendarSelection.googleCalendarId));
+
+      return rows.map(toSyncRecord);
+    },
+
+    /** Records the watch channel Google opened for one calendar. */
+    async saveWatch(
+      userId: string,
+      googleCalendarId: string,
+      input: SaveWatchInput,
+    ): Promise<void> {
+      await database
+        .update(calendarSelection)
+        .set({
+          watchChannelId: input.channelId,
+          watchResourceId: input.resourceId,
+          watchToken: input.token,
+          watchExpiresAt: input.expiresAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            eq(calendarSelection.googleCalendarId, googleCalendarId),
+          ),
+        );
+    },
+
+    /** Clears one calendar's stored watch (after stopping or on renewal). */
+    async clearWatch(userId: string, googleCalendarId: string): Promise<void> {
+      await database
+        .update(calendarSelection)
+        .set({
+          watchChannelId: null,
+          watchResourceId: null,
+          watchToken: null,
+          watchExpiresAt: null,
           updatedAt: new Date(),
         })
         .where(

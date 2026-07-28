@@ -85,6 +85,13 @@
       "when": 1785214827988,
       "tag": "0011_perpetual_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785220739504,
+      "tag": "0012_small_black_knight",
+      "breakpoints": true
     }
   ]
 }

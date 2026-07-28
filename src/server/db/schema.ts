@@ -480,6 +480,17 @@ export const calendarSelection = pgTable(
     // agenda's last-synchronized cue.
     syncToken: text("sync_token"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    // Per-calendar push-notification watch (MEM-41). Each calendar owns its own
+    // channel independently: `watch_channel_id` is the id Rails chose when
+    // opening the watch and the key an incoming notification is matched on;
+    // `watch_resource_id` is Google's stable id for the watched resource;
+    // `watch_token` is the opaque verification token a notification must present
+    // before any sync runs; `watch_expires_at` drives proactive renewal before
+    // Google stops delivering. All null until a watch is registered.
+    watchChannelId: text("watch_channel_id"),
+    watchResourceId: text("watch_resource_id"),
+    watchToken: text("watch_token"),
+    watchExpiresAt: timestamp("watch_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -496,6 +507,60 @@ export const calendarSelection = pgTable(
     uniqueIndex("calendar_selection_one_writable_idx")
       .on(table.userId)
       .where(sql`is_writable`),
+    // A watch channel id is globally unique, so an incoming notification resolves
+    // to exactly one account's calendar. Partial so unwatched calendars (null)
+    // do not collide.
+    uniqueIndex("calendar_selection_watch_channel_idx")
+      .on(table.watchChannelId)
+      .where(sql`watch_channel_id is not null`),
+  ],
+);
+
+/**
+ * The Calendar synchronization outbox (MEM-41). A verified webhook, in the same
+ * transaction that acknowledges it, records exactly one row here per delivered
+ * notification and returns 200 without touching Google inline. A dispatcher then
+ * drains `pending` rows to Inngest, which runs the durable, paginated
+ * incremental sync. The unique `(channel_id, message_number)` index makes
+ * duplicate delivery a no-op insert — Google re-sends a notification until it is
+ * acknowledged, and this guarantees a re-send never enqueues a second job.
+ * `status` is a constrained text union ("pending" | "processing" | "completed" |
+ * "failed"); `attempts` and `last_error_code` give failure visibility without
+ * ever recording provider payloads or user content.
+ */
+export const calendarSyncJob = pgTable(
+  "calendar_sync_job",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    googleCalendarId: text("google_calendar_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    messageNumber: integer("message_number").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Duplicate delivery is a no-op: Google re-sends until acknowledged, and the
+    // same (channel, message number) can only ever create one job.
+    uniqueIndex("calendar_sync_job_delivery_idx").on(
+      table.channelId,
+      table.messageNumber,
+    ),
+    // Drains the outbox oldest-first over the pending rows.
+    index("calendar_sync_job_status_created_idx").on(
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
   ],
 );
 
