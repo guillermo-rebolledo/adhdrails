@@ -17,6 +17,8 @@ import {
   navigationDestinations,
 } from "@/components/navigation-items";
 import { Button } from "@/components/ui/button";
+import type { SearchResultType } from "@/domain/search/search";
+import { useContentSearch } from "@/hooks/use-content-search";
 import { cn } from "@/lib/utils";
 
 interface CommandEntry extends NavigationDestination {
@@ -63,6 +65,12 @@ const actions: CommandEntry[] = [
 ];
 
 const destinations: CommandEntry[] = navigationDestinations;
+
+const searchResultIcons = {
+  task: PlusIcon,
+  thought: SparklesIcon,
+  inbox_item: SearchIcon,
+} satisfies Record<SearchResultType, typeof SearchIcon>;
 
 interface CommandGroup {
   heading: string;
@@ -148,6 +156,22 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const normalizedQuery = query.trim().toLowerCase();
+  const {
+    items: contentResults,
+    loading: contentLoading,
+    source: contentSource,
+  } = useContentSearch(query);
+  const contentEntries = useMemo<CommandEntry[]>(
+    () =>
+      contentResults.map((result) => ({
+        id: `${result.type}:${result.id}`,
+        label: result.title,
+        href: result.href,
+        icon: searchResultIcons[result.type],
+        keywords: [],
+      })),
+    [contentResults],
+  );
 
   const groups = useMemo<CommandGroup[]>(() => {
     const build = (heading: string, entries: CommandEntry[]) => ({
@@ -160,14 +184,20 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
     return [
       build("Actions", actions),
       build("Destinations", destinations),
+      { heading: "Your content", entries: contentEntries },
     ].filter((group) => group.entries.length > 0);
-  }, [normalizedQuery]);
+  }, [contentEntries, normalizedQuery]);
 
   // A flat, keyboard-navigable view of what is currently visible.
   const flatEntries = useMemo(
     () => groups.flatMap((group) => group.entries),
     [groups],
   );
+
+  const visibleActiveIndex =
+    flatEntries.length === 0
+      ? 0
+      : Math.min(activeIndex, flatEntries.length - 1);
 
   // Base UI moves focus into the popup on open; land it on the search field so
   // typing filters immediately and screen readers announce the combobox.
@@ -201,7 +231,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      const entry = flatEntries[activeIndex];
+      const entry = flatEntries[visibleActiveIndex];
       if (entry) {
         navigate(entry);
       }
@@ -230,7 +260,9 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
   }
 
   const activeId =
-    flatEntries.length > 0 ? `${optionBaseId}-${activeIndex}` : undefined;
+    flatEntries.length > 0
+      ? `${optionBaseId}-${visibleActiveIndex}`
+      : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -260,13 +292,20 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
           value={query}
         />
       </div>
+      <p className="sr-only" role="status">
+        {contentLoading
+          ? "Searching your content."
+          : normalizedQuery
+            ? `${contentResults.length} content ${contentResults.length === 1 ? "result" : "results"}${contentSource === "offline" ? " available offline" : ""}.`
+            : ""}
+      </p>
       <div
         aria-label="Results"
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
         id={listId}
         role="listbox"
       >
-        {flatEntries.length === 0 ? (
+        {flatEntries.length === 0 && !contentLoading ? (
           <p className="px-2 py-6 text-center text-sm text-muted-foreground">
             No matches. Try a different search.
           </p>
@@ -275,7 +314,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
             <div key={group.heading} className="mb-1 last:mb-0">
               <p
                 aria-hidden="true"
-                className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground"
+                className="px-2 pt-2 pb-1 text-xs font-medium text-foreground"
               >
                 {group.heading}
               </p>
@@ -283,7 +322,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
                 // Its position in the flat list is the option's stable index, so
                 // roving focus and the visible order stay in lockstep.
                 const index = flatEntries.indexOf(entry);
-                const isActive = index === activeIndex;
+                const isActive = index === visibleActiveIndex;
                 const Icon = entry.icon;
 
                 return (

@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 afterEach(() => {
   push.mockClear();
+  vi.unstubAllGlobals();
 });
 
 function openWithShortcut(user: ReturnType<typeof userEvent.setup>) {
@@ -87,6 +88,45 @@ describe("CommandMenu", () => {
     expect(
       within(list).queryByRole("option", { name: /Calendar/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("returns domain content alongside matching navigation actions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: "10000000-0000-4000-8000-000000000001",
+                type: "task",
+                title: "Quarterly report",
+                excerpt: "",
+                href: "/tasks/10000000-0000-4000-8000-000000000001/edit",
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<CommandMenu />);
+    await openWithShortcut(user);
+
+    await user.type(
+      screen.getByRole("combobox", { name: "Search destinations and actions" }),
+      "report",
+    );
+
+    const result = await screen.findByRole("option", {
+      name: "Quarterly report",
+    });
+    await user.click(result);
+
+    expect(push).toHaveBeenCalledWith(
+      "/tasks/10000000-0000-4000-8000-000000000001/edit",
+    );
   });
 
   it("navigates to a destination when an option is chosen", async () => {

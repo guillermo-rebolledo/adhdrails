@@ -92,6 +92,7 @@ try {
       "src/server/event/repository.integration.test.ts",
       "src/server/event/export-job-repository.integration.test.ts",
       "src/server/notification/repository.integration.test.ts",
+      "src/server/search/repository.integration.test.ts",
     ],
     environment,
   );

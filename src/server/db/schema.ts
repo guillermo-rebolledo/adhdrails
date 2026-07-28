@@ -119,6 +119,14 @@ export const inboxItem = pgTable(
       table.createdAt,
       table.id,
     ),
+    index("inbox_item_search_fts_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.title})`,
+    ),
+    index("inbox_item_search_trgm_idx").using(
+      "gin",
+      sql`lower(${table.title}) gin_trgm_ops`,
+    ),
   ],
 );
 
@@ -231,6 +239,14 @@ export const task = pgTable(
       table.id,
     ),
     index("task_area_idx").on(table.areaId),
+    index("task_search_fts_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.title} || ' ' || ${table.notes})`,
+    ),
+    index("task_search_trgm_idx").using(
+      "gin",
+      sql`lower(${table.title} || ' ' || ${table.notes}) gin_trgm_ops`,
+    ),
   ],
 );
 
@@ -470,6 +486,14 @@ export const thought = pgTable(
       table.id,
     ),
     index("thought_tombstone_purge_idx").on(table.deletedAt),
+    index("thought_search_fts_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.title} || ' ' || ${table.body})`,
+    ),
+    index("thought_search_trgm_idx").using(
+      "gin",
+      sql`lower(${table.title} || ' ' || ${table.body}) gin_trgm_ops`,
+    ),
   ],
 );
 
