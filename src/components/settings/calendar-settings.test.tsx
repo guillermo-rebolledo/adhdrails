@@ -33,6 +33,7 @@ function connected(
     primaryCalendarId: "primary@example.com",
     primaryTimeZone: "America/New_York",
     connectedAt: "2026-07-27T12:00:00.000Z",
+    lastSyncedAt: null,
     calendars: [
       {
         googleCalendarId: "primary@example.com",
@@ -91,6 +92,30 @@ describe("CalendarSettings — not connected", () => {
 });
 
 describe("CalendarSettings — connected", () => {
+  it("shows when the calendar mirror was last synced", () => {
+    render(
+      <CalendarSettings
+        connection={connected({ lastSyncedAt: "2026-07-27T13:00:00.000Z" })}
+        accountTimezone="America/New_York"
+        accountLocale="en-US"
+      />,
+    );
+
+    expect(screen.getByText(/Last synced/)).toBeInTheDocument();
+  });
+
+  it("omits the last-synced line before the first import", () => {
+    render(
+      <CalendarSettings
+        connection={connected({ lastSyncedAt: null })}
+        accountTimezone="America/New_York"
+        accountLocale="en-US"
+      />,
+    );
+
+    expect(screen.queryByText(/Last synced/)).not.toBeInTheDocument();
+  });
+
   it("prevents choosing a read-only calendar as the write target", () => {
     render(
       <CalendarSettings

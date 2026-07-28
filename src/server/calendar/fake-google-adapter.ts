@@ -1,4 +1,5 @@
 import type { AvailableCalendar } from "@/domain/calendar/connection";
+import type { GoogleEventResource } from "@/domain/calendar/import";
 
 import type {
   GoogleCalendarAuthAdapter,
@@ -10,11 +11,27 @@ export interface FakeGoogleAdapterOptions {
   grant?: Partial<GoogleTokenGrant>;
   /** When set, `exchangeCode` rejects with this to simulate a failed grant. */
   exchangeError?: Error;
+  /** Seeded events per calendar id, returned by `listEvents` with pagination. */
+  events?: Record<string, GoogleEventResource[]>;
+  /** How many events `listEvents` returns per page (drives pagination). */
+  eventsPageSize?: number;
+  /** The sync token handed back on a calendar's final events page. */
+  syncTokenFor?: (calendarId: string) => string;
+}
+
+/** One recorded `listEvents` call, so tests can assert the requested window. */
+export interface RecordedEventsRequest {
+  calendarId: string;
+  timeMin: string;
+  timeMax: string;
+  pageToken?: string;
 }
 
 export interface FakeGoogleAdapter extends GoogleCalendarAuthAdapter {
   readonly revokedTokens: string[];
   readonly authorizationStates: string[];
+  readonly refreshedTokens: string[];
+  readonly eventsRequests: RecordedEventsRequest[];
 }
 
 const DEFAULT_CALENDARS: AvailableCalendar[] = [
@@ -53,10 +70,14 @@ export function createFakeGoogleAdapter(
   const calendars = options.calendars ?? DEFAULT_CALENDARS;
   const revokedTokens: string[] = [];
   const authorizationStates: string[] = [];
+  const refreshedTokens: string[] = [];
+  const eventsRequests: RecordedEventsRequest[] = [];
 
   return {
     revokedTokens,
     authorizationStates,
+    refreshedTokens,
+    eventsRequests,
 
     buildAuthorizationUrl({ state }) {
       authorizationStates.push(state);
@@ -80,6 +101,33 @@ export function createFakeGoogleAdapter(
 
     async listCalendars() {
       return calendars.map((calendar) => ({ ...calendar }));
+    },
+
+    async refreshAccessToken({ refreshToken }) {
+      refreshedTokens.push(refreshToken);
+      return {
+        accessToken: `access-refreshed-for-${refreshToken}`,
+        accessTokenExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      };
+    },
+
+    async listEvents({ calendarId, timeMin, timeMax, pageToken }) {
+      eventsRequests.push({ calendarId, timeMin, timeMax, pageToken });
+
+      const all = options.events?.[calendarId] ?? [];
+      const pageSize = options.eventsPageSize ?? Math.max(all.length, 1);
+      const offset = pageToken ? Number.parseInt(pageToken, 10) : 0;
+      const slice = all.slice(offset, offset + pageSize);
+      const nextOffset = offset + pageSize;
+      const hasMore = nextOffset < all.length;
+
+      return {
+        events: slice.map((event) => ({ ...event })),
+        nextPageToken: hasMore ? String(nextOffset) : null,
+        nextSyncToken: hasMore
+          ? null
+          : (options.syncTokenFor?.(calendarId) ?? `sync-${calendarId}`),
+      };
     },
 
     async revoke({ token }) {

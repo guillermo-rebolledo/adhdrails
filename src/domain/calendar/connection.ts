@@ -88,6 +88,8 @@ export const connectionResponseSchema = z.object({
   primaryCalendarId: z.string().nullable(),
   primaryTimeZone: z.string().nullable(),
   connectedAt: z.string(),
+  /** When the mirror was last synchronized, or null before the first import. */
+  lastSyncedAt: z.string().nullable(),
   calendars: z.array(selectedCalendarSchema),
 });
 

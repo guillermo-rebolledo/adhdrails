@@ -112,11 +112,13 @@ export function createCalendarService(deps: CalendarServiceDependencies) {
       }
 
       const calendars = await repository.listCalendars(userId);
+      const lastSyncedAt = await repository.latestSyncAt(userId);
       return {
         status: connection.status,
         primaryCalendarId: connection.primaryCalendarId,
         primaryTimeZone: connection.primaryTimeZone,
         connectedAt: connection.connectedAt.toISOString(),
+        lastSyncedAt: lastSyncedAt ? lastSyncedAt.toISOString() : null,
         calendars,
       };
     },

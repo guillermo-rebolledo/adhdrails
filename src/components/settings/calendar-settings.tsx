@@ -184,6 +184,16 @@ function ConnectedCalendar({
           Choose which calendars appear in your agenda and which one receives
           new events.
         </span>
+        {connection.lastSyncedAt ? (
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Last synced{" "}
+            {new Intl.DateTimeFormat(accountLocale, {
+              timeZone: accountTimezone,
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(connection.lastSyncedAt))}
+          </span>
+        ) : null}
       </p>
 
       {offerTimezone ? (

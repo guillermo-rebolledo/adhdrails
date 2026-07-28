@@ -16,6 +16,7 @@ import { createTokenCipher } from "./token-cipher";
 function inMemoryRepository() {
   const connections = new Map<string, ConnectionRecord>();
   const calendars = new Map<string, SelectedCalendar[]>();
+  const syncState = new Map<string, Map<string, Date>>();
 
   const repository: CalendarRepository = {
     async getConnection(userId) {
@@ -55,9 +56,22 @@ function inMemoryRepository() {
         }),
       );
     },
+    async recordCalendarSync(userId, googleCalendarId, input) {
+      const forUser = syncState.get(userId) ?? new Map<string, Date>();
+      forUser.set(googleCalendarId, input.lastSyncedAt);
+      syncState.set(userId, forUser);
+    },
+    async latestSyncAt(userId) {
+      const forUser = syncState.get(userId);
+      if (!forUser || forUser.size === 0) {
+        return null;
+      }
+      return [...forUser.values()].reduce((a, b) => (a > b ? a : b));
+    },
     async deleteConnection(userId) {
       connections.delete(userId);
       calendars.delete(userId);
+      syncState.delete(userId);
     },
   };
 
