@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
+import { useHydrated } from "@/hooks/use-hydrated";
 import { cn } from "@/lib/utils";
 
 import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
@@ -31,6 +32,7 @@ const choices = [
 
 export function AppearanceSettings() {
   const { theme = "system", setTheme } = useTheme();
+  const hydrated = useHydrated();
   const [status, setStatus] = useState<string | null>(null);
 
   function choose(value: (typeof choices)[number]["value"], label: string) {
@@ -76,6 +78,7 @@ export function AppearanceSettings() {
               aria-label={label}
               checked={theme === value}
               className="mt-0.5 size-4 shrink-0"
+              disabled={!hydrated}
               name="appearance"
               onChange={() => choose(value, label)}
               type="radio"

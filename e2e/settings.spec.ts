@@ -120,9 +120,9 @@ test("is keyboard and screen-reader operable", async ({ page }) => {
   await signIn(page, { onboarded: true });
   await page.goto("/settings");
 
+  await expect(page.getByRole("radio", { name: "System" })).toBeEnabled();
   const appearanceLink = page.getByRole("link", { name: "Appearance" });
-  await appearanceLink.focus();
-  await page.keyboard.press("Enter");
+  await appearanceLink.press("Enter");
   await expect(page).toHaveURL(/#appearance$/);
   await expect(
     page.getByRole("group", { name: "Choose appearance" }),

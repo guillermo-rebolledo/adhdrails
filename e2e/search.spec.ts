@@ -10,7 +10,7 @@ test.describe("global search", () => {
   }) => {
     await signIn(page, {
       onboarded: true,
-      email: `search-ranking-${browserName}@rails.test`,
+      email: `search-ranking-${browserName}-${crypto.randomUUID()}@rails.test`,
     });
     const taskId = crypto.randomUUID();
     expect(
@@ -30,10 +30,12 @@ test.describe("global search", () => {
       name: "Search your Rails content",
     });
     await search.fill("quaterly");
-    await expect(
-      page.getByRole("option", { name: /Quarterly planning report/ }),
-    ).toBeVisible();
+    const result = page.getByRole("option", {
+      name: /Quarterly planning report/,
+    });
+    await expect(result).toBeVisible();
     await search.press("ArrowDown");
+    await expect(result).toHaveAttribute("aria-selected", "true");
     await search.press("Enter");
 
     await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}/edit$`));
@@ -50,7 +52,7 @@ test.describe("global search", () => {
     );
     await signIn(page, {
       onboarded: true,
-      email: `search-offline-${browserName}@rails.test`,
+      email: `search-offline-${browserName}-${crypto.randomUUID()}@rails.test`,
     });
     await page.goto("/thoughts/new");
     await page.getByLabel("Title").fill("Conference reference");
