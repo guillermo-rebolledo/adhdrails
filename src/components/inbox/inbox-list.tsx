@@ -23,6 +23,7 @@ import {
 } from "@/offline/commands";
 import type { LocalInboxItem, SyncState } from "@/offline/db";
 import { useOffline } from "@/offline/provider";
+import { cn } from "@/lib/utils";
 
 const syncStateCopy: Record<SyncState, string> = {
   pending: "Pending sync",
@@ -56,11 +57,14 @@ export function InboxList({
   timeZone = DEFAULT_TIMEZONE,
   locale = DEFAULT_LOCALE,
   undoWindowMs = UNDO_WINDOW_MS,
+  highlightedItemId,
 }: {
   timeZone?: string;
   locale?: string;
   /** The delete Undo window. Overridable only to keep tests fast. */
   undoWindowMs?: number;
+  /** Search deep-link target to focus and distinguish on arrival. */
+  highlightedItemId?: string;
 } = {}) {
   const { db, sync } = useOffline();
   const [message, setMessage] = useState("");
@@ -80,6 +84,11 @@ export function InboxList({
         .toArray(),
     [db],
   );
+
+  useEffect(() => {
+    if (!items || !highlightedItemId) return;
+    document.getElementById(`inbox-item-${highlightedItemId}`)?.focus();
+  }, [highlightedItemId, items]);
 
   // Opening the Inbox marks everything currently waiting as seen. Newly captured
   // items arrive unseen and restore the badge on their own.
@@ -146,7 +155,15 @@ export function InboxList({
     return null;
   }
 
-  const visible = items.filter((item) => !skipped.has(item.id));
+  const visible = items
+    .filter((item) => !skipped.has(item.id))
+    .sort((left, right) =>
+      left.id === highlightedItemId
+        ? -1
+        : right.id === highlightedItemId
+          ? 1
+          : 0,
+    );
 
   return (
     <div className="flex flex-col gap-3">
@@ -178,6 +195,7 @@ export function InboxList({
             <InboxRow
               item={item}
               key={item.id}
+              highlighted={item.id === highlightedItemId}
               locale={locale}
               timeZone={timeZone}
               onDelete={() => onDelete(item)}
@@ -207,6 +225,7 @@ export function InboxList({
 
 function InboxRow({
   item,
+  highlighted,
   timeZone,
   locale,
   onClassifyThought,
@@ -216,6 +235,7 @@ function InboxRow({
   onDelete,
 }: {
   item: LocalInboxItem;
+  highlighted: boolean;
   timeZone: string;
   locale: string;
   onClassifyThought: (title: string) => Promise<void>;
@@ -264,7 +284,15 @@ function InboxRow({
   }
 
   return (
-    <li className="flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground">
+    <li
+      aria-current={highlighted ? "true" : undefined}
+      className={cn(
+        "flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground",
+        highlighted && "border-ring ring-2 ring-ring/30",
+      )}
+      id={`inbox-item-${item.id}`}
+      tabIndex={highlighted ? -1 : undefined}
+    >
       <div className="min-w-0">
         <p className="truncate">{item.title}</p>
         <span

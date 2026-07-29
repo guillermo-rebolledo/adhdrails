@@ -4,8 +4,13 @@ import { InboxList } from "@/components/inbox/inbox-list";
 import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
 import { getAccountSummary } from "@/server/auth/session";
 
-export default async function InboxPage() {
+export default async function InboxPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ item?: string }>;
+}) {
   const account = await getAccountSummary(await headers());
+  const { item } = await searchParams;
 
   return (
     <section className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -17,6 +22,7 @@ export default async function InboxPage() {
         </p>
       </div>
       <InboxList
+        highlightedItemId={item}
         locale={account?.locale ?? DEFAULT_LOCALE}
         timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
       />
