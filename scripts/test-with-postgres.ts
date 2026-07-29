@@ -85,6 +85,7 @@ try {
       "exec",
       "vitest",
       "run",
+      "--no-file-parallelism",
       "src/server/task/repository.integration.test.ts",
       "src/server/focus/repository.integration.test.ts",
       "src/server/calendar/repository.integration.test.ts",
@@ -93,6 +94,8 @@ try {
       "src/server/event/export-job-repository.integration.test.ts",
       "src/server/notification/repository.integration.test.ts",
       "src/server/search/repository.integration.test.ts",
+      "src/server/account/data-export-repository.integration.test.ts",
+      "src/server/account/deletion-repository.integration.test.ts",
     ],
     environment,
   );

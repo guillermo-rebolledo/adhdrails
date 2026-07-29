@@ -27,6 +27,16 @@ export default function TermsPage() {
           while the product is validated.
         </p>
       </section>
+      <section>
+        <h2 className="text-base font-medium">Your account and data</h2>
+        <p className="mt-2 text-muted-foreground">
+          You can export app-owned data or permanently delete your account from
+          Settings. Deletion disables access as soon as the server accepts the
+          confirmed request and continues as durable background cleanup. These
+          product terms describe current MVP behavior and are not a promise of
+          medical, legal, security-certification, or uninterrupted service.
+        </p>
+      </section>
     </InfoPage>
   );
 }

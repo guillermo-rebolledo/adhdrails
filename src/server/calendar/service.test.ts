@@ -367,3 +367,26 @@ describe("disconnect", () => {
     expect(adapter.revokedTokens).toEqual([]);
   });
 });
+
+describe("disconnectForAccountDeletion", () => {
+  it("keeps encrypted credentials available when revocation needs a retry", async () => {
+    const { repository, connections } = inMemoryRepository();
+    const baseAdapter = createFakeGoogleAdapter();
+    const service = createCalendarService({
+      repository,
+      adapter: {
+        ...baseAdapter,
+        revoke: async () => {
+          throw new Error("provider unavailable");
+        },
+      },
+      cipher: cipher(),
+    });
+    await service.completeAuthorization("user_1", "abc");
+
+    await expect(
+      service.disconnectForAccountDeletion("user_1"),
+    ).rejects.toThrow("provider unavailable");
+    expect(connections.has("user_1")).toBe(true);
+  });
+});

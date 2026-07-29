@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DataExportStatusResponse } from "@/domain/account/data-export";
+import { ACCOUNT_DELETION_CONFIRMATION } from "@/domain/account/deletion";
 
 import { DataPrivacySettings } from "./data-privacy-settings";
 
@@ -104,5 +105,105 @@ describe("DataPrivacySettings", () => {
     );
     await userEvent.click(screen.getByTestId("request-export"));
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("requires typed confirmation and waits for the server before finishing deletion", async () => {
+    let resolveRequest!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+    const onDeletionConfirmed = vi.fn();
+    render(
+      <DataPrivacySettings
+        initialStatus={status()}
+        accountId="user_1"
+        onDeletionConfirmed={onDeletionConfirmed}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    const confirm = screen.getByRole("button", {
+      name: "Permanently delete account",
+    });
+    expect(confirm).toBeDisabled();
+
+    await userEvent.type(
+      screen.getByLabelText(/type delete my account/i),
+      ACCOUNT_DELETION_CONFIRMATION,
+    );
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+
+    expect(onDeletionConfirmed).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/account/deletion",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: ACCOUNT_DELETION_CONFIRMATION,
+        }),
+      }),
+    );
+
+    resolveRequest(
+      jsonResponse(
+        {
+          id: "job_1",
+          status: "pending",
+          requestedAt: "2026-07-28T12:00:00.000Z",
+          completedAt: null,
+          errorCode: null,
+        },
+        true,
+        202,
+      ),
+    );
+    await waitFor(() => expect(onDeletionConfirmed).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the accepted state when post-confirmation cleanup fails", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: "44d77356-5801-4cd2-b662-daeb1d7fdd74",
+          status: "pending",
+          requestedAt: "2026-07-28T12:00:00.000Z",
+          completedAt: null,
+          errorCode: null,
+        },
+        true,
+        202,
+      ),
+    );
+    render(
+      <DataPrivacySettings
+        initialStatus={status()}
+        onDeletionConfirmed={() =>
+          Promise.reject(new Error("navigation failed"))
+        }
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText(/type delete my account/i),
+      ACCOUNT_DELETION_CONFIRMATION,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Permanently delete account" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        /deletion was confirmed/i,
+      ),
+    );
+    expect(screen.queryByText(/reconnect before deleting/i)).toBeNull();
   });
 });

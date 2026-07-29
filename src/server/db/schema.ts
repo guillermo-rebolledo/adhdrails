@@ -36,6 +36,9 @@ export const user = pgTable("user", {
   onboardingCompletedAt: timestamp("onboarding_completed_at", {
     withTimezone: true,
   }),
+  deletionRequestedAt: timestamp("deletion_requested_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -799,6 +802,77 @@ export const dataExport = pgTable(
       table.createdAt,
       table.id,
     ),
+  ],
+);
+
+/**
+ * Durable account-deletion workflow and its 30-day tombstone (MEM-49).
+ * `user_id` is present only while cleanup still needs the account scope; access
+ * is disabled immediately via `user.deletion_requested_at`. Finalization deletes
+ * the User and nulls this reference, leaving only a random pseudonym that cannot
+ * be joined back to identity or content. The completed row is the idempotency
+ * receipt and is purged at `purge_after`.
+ */
+export const accountDeletion = pgTable(
+  "account_deletion",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    pseudonymousAccountId: uuid("pseudonymous_account_id").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("account_deletion_one_active_idx")
+      .on(table.userId)
+      .where(sql`user_id is not null`),
+    index("account_deletion_dispatch_idx").on(
+      table.status,
+      table.requestedAt,
+      table.id,
+    ),
+    index("account_deletion_purge_idx").on(table.purgeAfter),
+  ],
+);
+
+/**
+ * Append-only, metadata-only operational audit records. Account references are
+ * random pseudonyms created for a workflow, never User ids, emails, content,
+ * provider ids, tokens, or payloads. Every row has a fixed 90-day purge time.
+ */
+export const operationalAudit = pgTable(
+  "operational_audit",
+  {
+    id: uuid("id").primaryKey(),
+    accountReference: uuid("account_reference"),
+    action: text("action").notNull(),
+    opaqueTarget: uuid("opaque_target"),
+    outcome: text("outcome").notNull(),
+    safeCode: text("safe_code"),
+    correlationId: text("correlation_id").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("operational_audit_account_time_idx").on(
+      table.accountReference,
+      table.occurredAt,
+    ),
+    index("operational_audit_purge_idx").on(table.purgeAfter),
   ],
 );
 

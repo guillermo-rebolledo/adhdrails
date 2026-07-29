@@ -8,8 +8,17 @@ import {
 } from "@/domain/account/onboarding";
 import { getAccountSummary } from "@/server/auth/session";
 
-export default async function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    "account-deletion"?: string;
+    deletion?: string;
+  }>;
+}) {
   const account = await getAccountSummary(await headers());
+  const query = await searchParams;
+  const deletionConfirmed = query["account-deletion"] === "confirmed";
 
   const landing = resolveAuthenticatedLanding({
     authenticated: account !== null,
@@ -22,7 +31,10 @@ export default async function SignInPage() {
 
   return (
     <main className="flex min-h-dvh items-center justify-center p-6">
-      <SignInForm />
+      <SignInForm
+        deletionConfirmed={deletionConfirmed}
+        deletionReceipt={query.deletion}
+      />
     </main>
   );
 }

@@ -23,9 +23,12 @@ export default function SupportPage() {
       <section>
         <h2 className="text-base font-medium">Privacy-safe diagnostics</h2>
         <p className="mt-2 text-muted-foreground">
-          Rails support records operational metadata for sync, export, and
-          deletion failures. Those records do not contain your Task or Thought
-          content, Calendar payloads, tokens, or exported data.
+          Rails records content-free operational metadata for account deletion
+          cleanup. Those records do not contain your Task or Thought content,
+          Calendar payloads, tokens, or exported data. Account references are
+          pseudonymized when deletion begins, and these records are removed
+          after 90 days. Support can help retry incomplete cleanup, but cannot
+          restore access to an account after deletion was accepted.
         </p>
       </section>
     </InfoPage>

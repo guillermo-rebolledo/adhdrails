@@ -26,8 +26,20 @@ export default function PrivacyPage() {
         <h2 className="text-base font-medium">Your choices</h2>
         <p className="mt-2 text-muted-foreground">
           Google Calendar access is optional and can be disconnected without
-          removing your Rails login. Browser reminder subscriptions are managed
-          separately on each device.
+          removing your Rails login. You can export app-owned data as JSON and
+          permanently delete your Rails account from Settings. Browser reminder
+          subscriptions are managed separately on each device.
+        </p>
+      </section>
+      <section>
+        <h2 className="text-base font-medium">Account deletion</h2>
+        <p className="mt-2 text-muted-foreground">
+          After Rails accepts a deletion request, account access is disabled
+          immediately. Rails then revokes connected Google access, stops
+          Calendar watches and reminders, clears queued work, and removes active
+          app-owned data. A pseudonymous deletion receipt is kept for up to 30
+          days so cleanup can be retried safely. Content-free operational audit
+          metadata is pseudonymized immediately and kept for up to 90 days.
         </p>
       </section>
     </InfoPage>
