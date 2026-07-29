@@ -145,7 +145,6 @@ function ConnectedCalendar({
 
       if (response.ok) {
         setSave("saved");
-        router.refresh();
         return;
       }
 

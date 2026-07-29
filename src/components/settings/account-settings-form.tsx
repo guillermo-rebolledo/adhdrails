@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +25,6 @@ export function AccountSettingsForm({
   initialTimezone,
   initialLocale,
 }: AccountSettingsFormProps) {
-  const router = useRouter();
   const [status, setStatus] = useState<{
     kind: "success" | "error";
     message: string;
@@ -78,7 +76,6 @@ export function AccountSettingsForm({
           kind: "success",
           message: "Timezone and formatting saved.",
         });
-        router.refresh();
         return;
       }
 
@@ -158,9 +155,7 @@ export function AccountSettingsForm({
         {formattingPreview ? (
           <p className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
             <span className="text-muted-foreground">Formatting preview: </span>
-            <output data-testid="formatting-preview">
-              {formattingPreview}
-            </output>
+            <span data-testid="formatting-preview">{formattingPreview}</span>
           </p>
         ) : null}
 

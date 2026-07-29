@@ -7,16 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountSettingsForm } from "./account-settings-form";
 
 const fetchMock = vi.fn();
-const refresh = vi.fn();
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh }),
-}));
 
 describe("AccountSettingsForm", () => {
   beforeEach(() => {
     fetchMock.mockReset();
-    refresh.mockReset();
     vi.stubGlobal("fetch", fetchMock);
   });
 

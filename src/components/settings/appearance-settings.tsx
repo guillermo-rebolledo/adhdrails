@@ -60,27 +60,27 @@ export function AppearanceSettings() {
         {choices.map(({ value, label, description, icon: Icon }) => (
           <label
             className={cn(
-              "flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
+              "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
               theme === value && "border-foreground bg-muted/50",
             )}
             key={value}
           >
-            <input
-              aria-label={label}
-              checked={theme === value}
-              className="sr-only"
-              name="appearance"
-              onChange={() => choose(value, label)}
-              type="radio"
-              value={value}
-            />
             <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-            <span>
+            <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">{label}</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {description}
               </span>
             </span>
+            <input
+              aria-label={label}
+              checked={theme === value}
+              className="mt-0.5 size-4 shrink-0"
+              name="appearance"
+              onChange={() => choose(value, label)}
+              type="radio"
+              value={value}
+            />
           </label>
         ))}
       </fieldset>
