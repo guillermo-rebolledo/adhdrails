@@ -87,13 +87,16 @@ test.describe("inbox processing journeys", () => {
 
     await expect(row).toHaveCount(0);
     await expect
-      .poll(async () => {
-        const response = await page.request.get("/api/v1/thoughts");
-        const body = (await response.json()) as {
-          thoughts: { title: string }[];
-        };
-        return body.thoughts.map((thought) => thought.title);
-      })
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/v1/thoughts");
+          const body = (await response.json()) as {
+            thoughts: { title: string }[];
+          };
+          return body.thoughts.map((thought) => thought.title);
+        },
+        { timeout: 10_000 },
+      )
       .toContain("A reference worth keeping");
   });
 

@@ -38,11 +38,14 @@ export function TaskItems({
   tasks,
   emptyMessage = "No tasks yet. Anything you capture and turn into a task will wait here.",
   undoWindowMs = UNDO_WINDOW_MS,
+  completionNoticeMs = COMPLETION_NOTICE_MS,
 }: {
   tasks: LocalTask[];
   emptyMessage?: string;
   /** The delete Undo window. Overridable only to keep tests fast. */
   undoWindowMs?: number;
+  /** The completion Undo window. Overridable only to keep tests fast. */
+  completionNoticeMs?: number;
 }) {
   const { db, sync } = useOffline();
 
@@ -51,12 +54,17 @@ export function TaskItems({
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDeleteId = useRef<string | null>(null);
+  const completionFinalized = useRef(true);
 
-  // Finalize any still-pending deletion on unmount so it is never silently lost.
+  // Finalize any still-pending mutation on unmount so it is never silently lost.
   useEffect(() => {
     return () => {
       if (completionTimer.current) {
         clearTimeout(completionTimer.current);
+      }
+      if (!completionFinalized.current) {
+        completionFinalized.current = true;
+        void sync();
       }
       if (deleteTimer.current) {
         clearTimeout(deleteTimer.current);
@@ -65,18 +73,36 @@ export function TaskItems({
         void finalizeTaskDeletion(db, pendingDeleteId.current);
       }
     };
-  }, [db]);
+  }, [db, sync]);
 
-  async function onComplete(task: LocalTask) {
-    await completeTask(db, task.id);
-    void sync();
-    setCompleted({ id: task.id, title: task.title });
+  /** Flushes a held completion once its Undo window is no longer available. */
+  function finalizeCompletion() {
     if (completionTimer.current) {
       clearTimeout(completionTimer.current);
+      completionTimer.current = null;
     }
+    if (!completionFinalized.current) {
+      completionFinalized.current = true;
+      void sync();
+    }
+    setCompleted(null);
+  }
+
+  async function onComplete(task: LocalTask) {
+    // Commit an earlier held completion before offering Undo for another one.
+    finalizeCompletion();
+    // A newly created or edited Task may still have an older request in flight.
+    // Let that drain reconcile before applying completion so its stale server
+    // response cannot restore the Task to active during the Undo window.
+    if (task.syncState !== "synced") {
+      await sync();
+    }
+    await completeTask(db, task.id);
+    completionFinalized.current = false;
+    setCompleted({ id: task.id, title: task.title });
     completionTimer.current = setTimeout(
-      () => setCompleted(null),
-      COMPLETION_NOTICE_MS,
+      finalizeCompletion,
+      completionNoticeMs,
     );
   }
 
@@ -86,10 +112,14 @@ export function TaskItems({
     }
     if (completionTimer.current) {
       clearTimeout(completionTimer.current);
+      completionTimer.current = null;
     }
+    // The completion has not been delivered yet, so this active update replaces
+    // it in the pending outbox entry before the first synchronization.
+    completionFinalized.current = true;
     await uncompleteTask(db, completed.id);
-    void sync();
     setCompleted(null);
+    void sync();
   }
 
   async function onRestore(task: LocalTask) {
@@ -218,9 +248,12 @@ export function TaskItems({
  */
 export function TaskList({
   undoWindowMs = UNDO_WINDOW_MS,
+  completionNoticeMs = COMPLETION_NOTICE_MS,
 }: {
   /** The delete Undo window. Overridable only to keep tests fast. */
   undoWindowMs?: number;
+  /** The completion Undo window. Overridable only to keep tests fast. */
+  completionNoticeMs?: number;
 } = {}) {
   const { db } = useOffline();
   const tasks = useLiveQuery(
@@ -237,5 +270,11 @@ export function TaskList({
     return null;
   }
 
-  return <TaskItems tasks={tasks} undoWindowMs={undoWindowMs} />;
+  return (
+    <TaskItems
+      completionNoticeMs={completionNoticeMs}
+      tasks={tasks}
+      undoWindowMs={undoWindowMs}
+    />
+  );
 }

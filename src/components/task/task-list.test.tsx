@@ -23,6 +23,15 @@ vi.mock("@/offline/provider", async () => {
 
 let db: RailsDatabase;
 
+async function createSyncedTask(title: string) {
+  const task = await createTask(db, { title });
+  await db.transaction("rw", db.tasks, db.outbox, async () => {
+    await db.tasks.update(task.id, { syncState: "synced" });
+    await db.outbox.clear();
+  });
+  return task;
+}
+
 afterEach(async () => {
   await db?.delete();
   sync.mockClear();
@@ -38,7 +47,7 @@ describe("TaskList", () => {
 
   it("completes a task with a calm acknowledgement and an undo path", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
-    const task = await createTask(db, { title: "Write the report" });
+    const task = await createSyncedTask("Write the report");
     const user = userEvent.setup();
     render(<TaskList />);
 
@@ -54,6 +63,9 @@ describe("TaskList", () => {
       expect(screen.queryByText("Write the report")).not.toBeInTheDocument(),
     );
     expect((await db.tasks.get(task.id))?.status).toBe("completed");
+    // Completion stays local while Undo is available, so a fast Undo cannot
+    // race an in-flight completion response and be overwritten by it.
+    expect(sync).not.toHaveBeenCalled();
 
     // Undo returns it to active.
     await user.click(screen.getByRole("button", { name: "Undo" }));
@@ -61,6 +73,66 @@ describe("TaskList", () => {
       expect(screen.getByText("Write the report")).toBeInTheDocument(),
     );
     expect((await db.tasks.get(task.id))?.status).toBe("active");
+    expect(sync).toHaveBeenCalledOnce();
+  });
+
+  it("synchronizes a completion when its Undo window expires", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createSyncedTask("Commit the report");
+    const user = userEvent.setup();
+    render(<TaskList completionNoticeMs={20} />);
+
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+
+    expect(sync).not.toHaveBeenCalled();
+    await waitFor(() => expect(sync).toHaveBeenCalledOnce());
+    expect(
+      screen.queryByText(/task complete\. nicely done/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("synchronizes a held completion when the list unmounts", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createSyncedTask("Leave the page");
+    const user = userEvent.setup();
+    const { unmount } = render(<TaskList />);
+
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/nicely done/i);
+    expect(sync).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(sync).toHaveBeenCalledOnce();
+  });
+
+  it("waits for an older pending mutation before holding completion", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    const task = await createTask(db, { title: "Newly created task" });
+    const user = userEvent.setup();
+    let releaseSync!: () => void;
+    sync.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSync = resolve;
+        }),
+    );
+    render(<TaskList />);
+
+    const completion = user.click(
+      await screen.findByRole("button", { name: "Complete" }),
+    );
+    await waitFor(() => expect(sync).toHaveBeenCalledOnce());
+
+    // The older request must settle before completion changes local state.
+    expect((await db.tasks.get(task.id))?.status).toBe("active");
+    releaseSync();
+    await completion;
+
+    await waitFor(async () =>
+      expect((await db.tasks.get(task.id))?.status).toBe("completed"),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(/nicely done/i);
   });
 
   it("hides a deleted task and restores it on undo", async () => {
