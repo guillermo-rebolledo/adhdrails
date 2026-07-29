@@ -62,6 +62,7 @@ describe("runIncrementalSyncJob", () => {
 
     expect(result).toEqual({
       status: "completed",
+      userId: "user_1",
       changed: 2,
       removed: 1,
       recovered: false,
@@ -107,7 +108,11 @@ describe("runIncrementalSyncJob", () => {
 
     const result = await runIncrementalSyncJob(d, "job-1");
 
-    expect(result).toEqual({ status: "failed", reason: "unauthorized" });
+    expect(result).toEqual({
+      status: "failed",
+      userId: "user_1",
+      reason: "unauthorized",
+    });
     expect(d.calls.failed).toEqual([{ id: "job-1", code: "unauthorized" }]);
     expect(d.calls.completed).toEqual([]);
   });

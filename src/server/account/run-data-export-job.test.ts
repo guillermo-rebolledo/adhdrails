@@ -103,7 +103,11 @@ describe("runDataExportJob", () => {
       "export_1",
     );
 
-    expect(result).toEqual({ status: "failed", reason: "account_missing" });
+    expect(result).toEqual({
+      status: "failed",
+      userId: "user_1",
+      reason: "account_missing",
+    });
     expect(repo.markFailed).toHaveBeenCalledWith("export_1", "account_missing");
   });
 });

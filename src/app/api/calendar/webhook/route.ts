@@ -3,15 +3,23 @@ import type { CalendarWebhookService } from "@/server/calendar/webhook-service";
 import { getCalendarWebhookService } from "@/server/calendar/service-factory";
 import { correlationIdFrom } from "@/server/observability/correlation-id";
 import { logOperationalEvent } from "@/server/observability/logger";
+import {
+  RATE_LIMIT_RULES,
+  clientKeyFrom,
+  rateLimiter,
+  type RateLimiter,
+} from "@/server/rate-limit/limiter";
 
 export interface WebhookRouteDependencies {
   getService: () => CalendarWebhookService;
   createCorrelationId: (request: Request) => string;
+  rateLimiter: RateLimiter;
 }
 
 const dependencies: WebhookRouteDependencies = {
   getService: getCalendarWebhookService,
   createCorrelationId: correlationIdFrom,
+  rateLimiter,
 };
 
 /** Extracts the Google push-notification headers (all case-insensitive). */
@@ -39,6 +47,34 @@ export function createCalendarWebhookRouteHandlers(
    */
   async function POST(request: Request): Promise<Response> {
     const correlationId = deps.createCorrelationId(request);
+
+    // Bound this public surface before doing any work. Key on the client IP
+    // (forwarded by Vercel's edge), never on a request header: the channel id is
+    // attacker-controlled, so keying on it would let a caller rotate the header
+    // to mint a fresh window per value and slip past the limit entirely.
+    const rateKey = `calendar-webhook:${clientKeyFrom(request)}`;
+    const decision = deps.rateLimiter.consume(
+      rateKey,
+      RATE_LIMIT_RULES.calendarWebhook,
+    );
+    if (!decision.allowed) {
+      logOperationalEvent({
+        correlationId,
+        action: "calendar.webhook_rate_limited",
+        outcome: "failure",
+        safeCode: "rate_limited",
+      });
+      // 429 tells Google to back off and retry; the notification is not lost.
+      return new Response(null, {
+        status: 429,
+        headers: {
+          "retry-after": String(
+            Math.max(1, Math.ceil(decision.retryAfterMs / 1000)),
+          ),
+        },
+      });
+    }
+
     const outcome = await deps
       .getService()
       .handleNotification(notificationHeaders(request.headers));

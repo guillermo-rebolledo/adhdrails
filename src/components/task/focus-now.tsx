@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { useAnalytics } from "@/components/analytics/analytics-provider";
 import { Button } from "@/components/ui/button";
 import { addMinutesToInstant } from "@/domain/calendar/agenda";
 import { formatTime } from "@/domain/calendar/format";
@@ -92,6 +93,7 @@ export function FocusNow({
 }) {
   const { db, sync, accountId } = useOffline();
   const { energy, setEnergy } = useCurrentEnergy(accountId);
+  const analytics = useAnalytics();
 
   // A stable reference instant so the recommendation does not churn per render.
   const [reference] = useState(() => now ?? new Date().toISOString());
@@ -236,6 +238,7 @@ export function FocusNow({
     // competing session started elsewhere into a visible conflict on sync.
     await startFocus(db, { taskId });
     void sync();
+    analytics.track({ name: "focus_session_started" });
     setSelectedId(null);
     setDeferOpen(false);
   }
@@ -259,6 +262,7 @@ export function FocusNow({
     const prior = { ...session };
     const task = await db.tasks.get(session.taskId);
     await completeFocus(db, session.id);
+    analytics.track({ name: "focus_session_completed" });
     finalizedRef.current = false;
     setTaskDone(false);
     setShowNextItems(false);

@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckSquareIcon,
@@ -9,6 +9,7 @@ import {
   SearchIcon,
 } from "lucide-react";
 
+import { useAnalytics } from "@/components/analytics/analytics-provider";
 import { Button } from "@/components/ui/button";
 import { type SearchResultType } from "@/domain/search/search";
 import { useContentSearch } from "@/hooks/use-content-search";
@@ -25,6 +26,7 @@ const typePresentation = {
 
 export function SearchView({ debounceMs = 200 }: { debounceMs?: number }) {
   const router = useRouter();
+  const analytics = useAnalytics();
   const listId = useId();
   const optionId = useId();
   const [query, setQuery] = useState("");
@@ -33,6 +35,25 @@ export function SearchView({ debounceMs = 200 }: { debounceMs?: number }) {
     query,
     debounceMs,
   );
+
+  // Record one content-free analytics event per settled query — only whether it
+  // returned any results, never the query text itself. The ref dedupes so the
+  // event fires once per distinct search rather than on every re-render.
+  const trackedQuery = useRef<string | null>(null);
+  const normalizedQuery = query.trim();
+  useEffect(() => {
+    if (loading || normalizedQuery.length === 0) {
+      return;
+    }
+    if (trackedQuery.current === normalizedQuery) {
+      return;
+    }
+    trackedQuery.current = normalizedQuery;
+    analytics.track({
+      name: "search_performed",
+      results: items.length > 0 ? "some" : "none",
+    });
+  }, [analytics, loading, normalizedQuery, items.length]);
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {

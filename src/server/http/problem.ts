@@ -87,6 +87,28 @@ export function pushUnavailableProblem(correlationId: string): Response {
 }
 
 /**
+ * Too many requests arrived from this caller inside the rate-limit window. The
+ * response carries a `Retry-After` header (whole seconds) so a well-behaved
+ * client backs off, and never leaks how the limit is counted.
+ */
+export function rateLimitedProblem(
+  correlationId: string,
+  retryAfterSeconds: number,
+): Response {
+  const response = problemResponse({
+    type: "https://rails.app/problems/rate-limited",
+    title: "Too many requests",
+    status: 429,
+    code: "rate_limited",
+    detail: "Too many requests. Please slow down and try again shortly.",
+    correlationId,
+    retryable: true,
+  });
+  response.headers.set("retry-after", String(Math.max(1, retryAfterSeconds)));
+  return response;
+}
+
+/**
  * The record was deliberately deleted and tombstoned. A queued create or update
  * that arrives afterward must not resurrect it; the client drops its local copy.
  */

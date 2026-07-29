@@ -38,6 +38,7 @@ import {
   revokeGoogleProviderToken,
 } from "@/server/calendar/service-factory";
 import { logOperationalEvent } from "@/server/observability/logger";
+import { getOperationalAuditRecorder } from "@/server/observability/audit";
 import { getReminderDeliveryService } from "@/server/notification/service-factory";
 
 import { inngest } from "./client";
@@ -55,6 +56,9 @@ export const calendarIncrementalSync = inngest.createFunction(
   {
     id: "calendar-incremental-sync",
     retries: 3,
+    // Bound the rate of paginated Google Calendar reads so a burst of webhooks
+    // cannot exhaust the provider quota; excess runs queue rather than fail.
+    throttle: { limit: 20, period: "1m" },
     triggers: [{ event: INCREMENTAL_SYNC_EVENT }],
   },
   async ({ event }) => {
@@ -70,10 +74,25 @@ export const calendarIncrementalSync = inngest.createFunction(
 
     logOperationalEvent({
       correlationId: jobId,
+      jobId,
       action: "calendar.incremental_synced",
       outcome: result.status === "failed" ? "failure" : "success",
       safeCode: result.status === "failed" ? result.reason : undefined,
     });
+
+    // A metadata-only audit record for support visibility (MEM-50). Only written
+    // on a terminal outcome, so an idempotent retry that short-circuits an
+    // already-completed job does not append a duplicate.
+    if (result.status === "completed" || result.status === "failed") {
+      await getOperationalAuditRecorder().record({
+        userId: result.userId,
+        action: "calendar.incremental_synced",
+        target: jobId,
+        outcome: result.status === "failed" ? "failure" : "success",
+        safeCode: result.status === "failed" ? result.reason : undefined,
+        correlationId: jobId,
+      });
+    }
 
     return result;
   },
@@ -119,6 +138,8 @@ export const calendarEventExport = inngest.createFunction(
   {
     id: "calendar-event-export",
     retries: 3,
+    // Bound the rate of Google Calendar writes for the same reason as reads.
+    throttle: { limit: 20, period: "1m" },
     triggers: [{ event: EVENT_EXPORT_EVENT }],
   },
   async ({ event }) => {
@@ -134,6 +155,7 @@ export const calendarEventExport = inngest.createFunction(
 
     logOperationalEvent({
       correlationId: jobId,
+      jobId,
       action: "calendar.event_exported",
       outcome: result.status === "failed" ? "failure" : "success",
       safeCode:
@@ -313,6 +335,9 @@ export const accountDataExport = inngest.createFunction(
   {
     id: "account-data-export",
     retries: 3,
+    // Assembling an archive scans an account's data; throttle so a burst of
+    // requests spreads out rather than contending for the database at once.
+    throttle: { limit: 10, period: "1m" },
     triggers: [{ event: DATA_EXPORT_EVENT }],
   },
   async ({ event }) => {
@@ -325,6 +350,7 @@ export const accountDataExport = inngest.createFunction(
 
     logOperationalEvent({
       correlationId: jobId,
+      jobId,
       action: "account.data_exported",
       outcome: result.status === "failed" ? "failure" : "success",
       safeCode:
@@ -332,6 +358,19 @@ export const accountDataExport = inngest.createFunction(
           ? result.reason
           : undefined,
     });
+
+    // A metadata-only audit record for support visibility (MEM-50). Only written
+    // on a terminal outcome, so an idempotent retry does not append a duplicate.
+    if (result.status === "completed" || result.status === "failed") {
+      await getOperationalAuditRecorder().record({
+        userId: result.userId,
+        action: "account.data_exported",
+        target: jobId,
+        outcome: result.status === "failed" ? "failure" : "success",
+        safeCode: result.status === "failed" ? result.reason : undefined,
+        correlationId: jobId,
+      });
+    }
 
     return result;
   },
@@ -414,6 +453,7 @@ export const accountDeletionCleanup = inngest.createFunction(
 
     logOperationalEvent({
       correlationId: jobId,
+      jobId,
       action: "account.deleted",
       outcome: result.status === "completed" ? "success" : "failure",
       safeCode: result.status === "skipped" ? result.reason : undefined,

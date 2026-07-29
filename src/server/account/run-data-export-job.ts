@@ -12,9 +12,9 @@ export interface RunDataExportJobDependencies {
 }
 
 export type RunDataExportJobResult =
-  | { status: "completed"; byteSize: number }
+  | { status: "completed"; userId: string; byteSize: number }
   | { status: "skipped"; reason: "unknown_job" | "already_finished" }
-  | { status: "failed"; reason: string };
+  | { status: "failed"; userId: string; reason: string };
 
 /**
  * Runs one data-export job to completion: the durable, idempotent body the
@@ -45,7 +45,7 @@ export async function runDataExportJob(
   const source = await repository.collectAccountData(job.userId);
   if (!source) {
     await repository.markFailed(jobId, "account_missing");
-    return { status: "failed", reason: "account_missing" };
+    return { status: "failed", userId: job.userId, reason: "account_missing" };
   }
 
   const at = now();
@@ -59,5 +59,5 @@ export async function runDataExportJob(
     expiresAt: new Date(at.getTime() + DATA_EXPORT_TTL_MS),
   });
 
-  return { status: "completed", byteSize };
+  return { status: "completed", userId: job.userId, byteSize };
 }

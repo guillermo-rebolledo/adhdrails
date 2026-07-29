@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 
 import {
   ACCOUNT_DELETION_TOMBSTONE_TTL_MS,
-  OPERATIONAL_AUDIT_TTL_MS,
   type AccountDeletionStatus,
   retentionDeadline,
 } from "@/domain/account/deletion";
@@ -17,6 +16,7 @@ import {
   pushSubscription,
   user,
 } from "@/server/db/schema";
+import { operationalAuditRow } from "@/server/observability/audit";
 
 const PROCESSING_LEASE_MS = 15 * 60_000;
 
@@ -58,27 +58,13 @@ function toRecord(row: {
   return { ...row, status: row.status as AccountDeletionStatus };
 }
 
-function auditValues(input: {
-  accountReference: string;
-  action: string;
-  target: string;
-  outcome: string;
-  safeCode?: string;
-  correlationId: string;
-  at: Date;
-}) {
-  return {
-    id: crypto.randomUUID(),
-    accountReference: input.accountReference,
-    action: input.action,
-    opaqueTarget: input.target,
-    outcome: input.outcome,
-    safeCode: input.safeCode ?? null,
-    correlationId: input.correlationId,
-    occurredAt: input.at,
-    purgeAfter: retentionDeadline(input.at, OPERATIONAL_AUDIT_TTL_MS),
-  };
-}
+/**
+ * The deletion workflow's audit rows use a random per-workflow pseudonym (stored
+ * on the deletion row), not the deterministic account hash, so a finalized
+ * account is deliberately unlinkable. Row assembly is shared with the sync and
+ * export workflows via {@link operationalAuditRow}.
+ */
+const auditValues = operationalAuditRow;
 
 async function findActive(database: Database, userId: string) {
   const [row] = await database
