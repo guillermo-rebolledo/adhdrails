@@ -1,32 +1,7 @@
+import type { ProblemDetails } from "@/domain/http/problem";
 import { CORRELATION_ID_HEADER } from "@/server/observability/correlation-id";
 
-export type ProblemCode =
-  | "database_unavailable"
-  | "route_not_found"
-  | "unauthorized"
-  | "validation_failed"
-  | "conflict"
-  | "not_found"
-  | "gone"
-  | "push_unavailable"
-  | "recurring_series_edit"
-  | "calendar_reauth_required";
-
-export interface ProblemDetails {
-  type: `https://rails.app/problems/${string}`;
-  title: string;
-  status: number;
-  code: ProblemCode;
-  detail: string;
-  correlationId: string;
-  retryable: boolean;
-  fieldErrors?: Record<string, string[]>;
-  /**
-   * The server's current view of a contested record, returned with a conflict
-   * so the client can present it for review instead of discarding local data.
-   */
-  current?: unknown;
-}
+export type { ProblemCode, ProblemDetails } from "@/domain/http/problem";
 
 export function problemResponse(problem: ProblemDetails): Response {
   return Response.json(problem, {

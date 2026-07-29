@@ -40,9 +40,7 @@ test("connects, configures calendars, adopts the primary timezone, and disconnec
   await connectCalendar(page);
 
   await page.goto("/settings");
-  await expect(
-    page.getByRole("heading", { name: "Google Calendar" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Calendars" })).toBeVisible();
   await expect(page.getByText("Connected.", { exact: false })).toBeVisible();
 
   // Target calendars by their row rather than by position.

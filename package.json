@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
+    "@hookform/resolvers": "^5.5.7",
     "@next/env": "16.2.12",
     "@tanstack/react-query": "^5.101.4",
     "better-auth": "^1.6.25",
@@ -50,6 +51,7 @@
     "postgres": "3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-hook-form": "^7.83.0",
     "serwist": "^9.5.12",
     "shadcn": "^4.15.0",
     "tailwind-merge": "3.3.1",

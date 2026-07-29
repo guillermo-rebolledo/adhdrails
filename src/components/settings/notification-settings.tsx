@@ -6,7 +6,11 @@ import {
   REMINDER_LEAD_MINUTES,
   type ReminderPreferences,
 } from "@/domain/notification/reminder";
+import { problemDetail } from "@/domain/http/problem";
+import { apiRequest } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
+
+import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
 
 interface NotificationSettingsProps {
   initialPreferences: ReminderPreferences;
@@ -78,19 +82,32 @@ export function NotificationSettings({
   }, [vapidPublicKey]);
 
   async function save(next: ReminderPreferences) {
-    setPreferences(next);
+    setBusy(true);
     try {
-      const response = await fetch("/api/v1/notifications/preferences", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      if (!response.ok) throw new Error("save failed");
+      const response = await apiRequest<ReminderPreferences>(
+        "/api/v1/notifications/preferences",
+        {
+          method: "PUT",
+          body: JSON.stringify(next),
+        },
+      );
+      if (!response.ok) {
+        setStatus(
+          problemDetail(
+            response.body,
+            "We couldn't save reminder settings. Please try again.",
+          ),
+        );
+        return;
+      }
+      setPreferences(next);
       setStatus("Reminder settings saved.");
     } catch {
       setStatus(
         "We couldn't save while offline. In-app cues will stay available.",
       );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -107,18 +124,21 @@ export function NotificationSettings({
       }));
     const json = subscription.toJSON();
     const id = deviceSubscriptionId();
-    const response = await fetch("/api/v1/notifications/subscriptions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id,
-        endpoint: subscription.endpoint,
-        expirationTime: subscription.expirationTime,
-        keys: json.keys,
-      }),
-    });
+    const response = await apiRequest<{ id?: unknown }>(
+      "/api/v1/notifications/subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          id,
+          endpoint: subscription.endpoint,
+          expirationTime: subscription.expirationTime,
+          keys: json.keys,
+        }),
+      },
+    );
     if (!response.ok) throw new Error("subscription failed");
-    const saved = (await response.json()) as { id?: unknown };
+    const saved = response.body;
+    if (!saved) throw new Error("subscription failed");
     if (typeof saved.id !== "string") throw new Error("subscription failed");
     localStorage.setItem(SUBSCRIPTION_ID_KEY, saved.id);
     setSubscriptionId(saved.id);
@@ -181,11 +201,14 @@ export function NotificationSettings({
       const subscription = await registration?.pushManager.getSubscription();
       await subscription?.unsubscribe();
       if (subscriptionId) {
-        await fetch("/api/v1/notifications/subscriptions", {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: subscriptionId }),
-        });
+        const response = await apiRequest<unknown>(
+          "/api/v1/notifications/subscriptions",
+          {
+            method: "DELETE",
+            body: JSON.stringify({ id: subscriptionId }),
+          },
+        );
+        if (!response.ok) throw new Error("device removal failed");
       }
       localStorage.removeItem(SUBSCRIPTION_ID_KEY);
       setSubscriptionId(null);
@@ -201,15 +224,17 @@ export function NotificationSettings({
     if (!subscriptionId) return;
     setBusy(true);
     try {
-      const response = await fetch("/api/v1/notifications/test", {
+      const response = await apiRequest<unknown>("/api/v1/notifications/test", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ subscriptionId }),
       });
       setStatus(
         response.ok
           ? "Test notification sent to this browser."
-          : "The test notification couldn't be sent.",
+          : problemDetail(
+              response.body,
+              "The test notification couldn't be sent.",
+            ),
       );
     } catch {
       setStatus("The test notification couldn't be sent while offline.");
@@ -224,7 +249,8 @@ export function NotificationSettings({
   return (
     <section
       aria-labelledby="notification-settings-title"
-      className="rounded-xl border bg-card p-6 text-card-foreground"
+      className={SETTINGS_SECTION_CLASS_NAME}
+      id="notifications"
     >
       <h2 id="notification-settings-title" className="text-lg font-medium">
         Notifications
@@ -282,6 +308,7 @@ export function NotificationSettings({
                 <input
                   checked={preferences.headsUpEnabled}
                   className="size-4"
+                  disabled={busy}
                   onChange={(event) =>
                     void save({
                       ...preferences,
@@ -297,7 +324,8 @@ export function NotificationSettings({
                 <select
                   aria-label="Heads-up lead time"
                   className="rounded-md border bg-background px-2 py-1"
-                  disabled={!preferences.headsUpEnabled}
+                  disabled={busy || !preferences.headsUpEnabled}
+                  aria-disabled={busy || !preferences.headsUpEnabled}
                   onChange={(event) =>
                     void save({
                       ...preferences,
@@ -319,6 +347,7 @@ export function NotificationSettings({
                 <input
                   checked={preferences.atTimeEnabled}
                   className="size-4"
+                  disabled={busy}
                   onChange={(event) =>
                     void save({
                       ...preferences,
@@ -372,6 +401,7 @@ export function NotificationSettings({
         <input
           checked={preferences.eventCueEnabled}
           className="size-4"
+          disabled={busy}
           onChange={(event) =>
             void save({
               ...preferences,

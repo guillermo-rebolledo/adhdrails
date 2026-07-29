@@ -1,15 +1,30 @@
 import { Suspense } from "react";
+import { ExternalLinkIcon } from "lucide-react";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AccountSettings } from "@/components/settings/account-settings";
 import { AccountSettingsForm } from "@/components/settings/account-settings-form";
+import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { CalendarSettings } from "@/components/settings/calendar-settings";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { SETTINGS_SECTION_CLASS_NAME } from "@/components/settings/settings-section";
 import { getAccountSummary } from "@/server/auth/session";
 import { serializeConnection } from "@/server/calendar/http";
 import { getCalendarService } from "@/server/calendar/service-factory";
 import { webPushPublicKey } from "@/server/notification/env";
 import { getNotificationService } from "@/server/notification/service-factory";
+
+const settingsSections = [
+  { id: "account", label: "Account" },
+  { id: "calendars", label: "Calendars" },
+  { id: "notifications", label: "Notifications" },
+  { id: "appearance", label: "Appearance" },
+  { id: "timezone", label: "Timezone" },
+  { id: "data-privacy", label: "Data & Privacy" },
+  { id: "about-support", label: "About & Support" },
+] as const;
 
 export default async function SettingsPage() {
   const account = await getAccountSummary(await headers());
@@ -24,45 +39,116 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <section className="mx-auto flex max-w-2xl flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">
-          Control appearance, integrations, privacy, and support.
+    <section className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+      <header className="flex flex-col gap-2">
+        <p className="text-sm font-medium text-muted-foreground">
+          Your workspace
         </p>
+        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+        <p className="max-w-2xl text-pretty text-muted-foreground">
+          One place for your account, integrations, reminders, appearance,
+          planning context, privacy, and support.
+        </p>
+      </header>
+
+      <div className="grid items-start gap-6 md:grid-cols-[12rem_minmax(0,1fr)]">
+        <nav
+          aria-label="Settings sections"
+          className="overflow-x-auto md:sticky md:top-6"
+        >
+          <ul className="flex min-w-max gap-1 pb-2 md:min-w-0 md:flex-col md:pb-0">
+            {settingsSections.map((section) => (
+              <li key={section.id}>
+                <a
+                  className="block rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                  href={`#${section.id}`}
+                >
+                  {section.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <AccountSettings name={account.name} email={account.email} />
+
+          <Suspense>
+            <CalendarSettings
+              connection={connection ? serializeConnection(connection) : null}
+              accountTimezone={account.timezone}
+              accountLocale={account.locale}
+            />
+          </Suspense>
+
+          <NotificationSettings
+            initialPreferences={reminderPreferences}
+            vapidPublicKey={webPushPublicKey()}
+          />
+
+          <AppearanceSettings />
+
+          <AccountSettingsForm
+            initialTimezone={account.timezone}
+            initialLocale={account.locale}
+          />
+
+          <section
+            aria-labelledby="data-privacy-title"
+            className={SETTINGS_SECTION_CLASS_NAME}
+            id="data-privacy"
+          >
+            <h2 id="data-privacy-title" className="text-lg font-medium">
+              Data &amp; Privacy
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Rails keeps app-owned content separate from mirrored Google
+              Calendar data and never uses your content for session replay.
+            </p>
+            <Link
+              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline"
+              href="/privacy"
+            >
+              Read how Rails handles data
+              <ExternalLinkIcon aria-hidden="true" className="size-3.5" />
+            </Link>
+          </section>
+
+          <section
+            aria-labelledby="about-support-title"
+            className={SETTINGS_SECTION_CLASS_NAME}
+            id="about-support"
+          >
+            <h2 id="about-support-title" className="text-lg font-medium">
+              About &amp; Support
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Rails is a calm-focus productivity tool for independent adults. It
+              is not medical care or treatment.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium">
+              <Link
+                className="underline-offset-4 hover:underline"
+                href="/support"
+              >
+                Contact support
+              </Link>
+              <Link
+                className="underline-offset-4 hover:underline"
+                href="/terms"
+              >
+                Terms
+              </Link>
+              <Link
+                className="underline-offset-4 hover:underline"
+                href="/privacy"
+              >
+                Privacy
+              </Link>
+            </div>
+          </section>
+        </div>
       </div>
-
-      <div className="rounded-xl border bg-card p-6 text-card-foreground">
-        <h2 className="text-lg font-medium">Account</h2>
-        <dl className="mt-4 grid grid-cols-1 gap-2 text-sm">
-          <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">Name</dt>
-            <dd className="font-medium">{account.name}</dd>
-          </div>
-          <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">Email</dt>
-            <dd className="font-medium">{account.email}</dd>
-          </div>
-        </dl>
-      </div>
-
-      <AccountSettingsForm
-        initialTimezone={account.timezone}
-        initialLocale={account.locale}
-      />
-
-      <Suspense>
-        <CalendarSettings
-          connection={connection ? serializeConnection(connection) : null}
-          accountTimezone={account.timezone}
-          accountLocale={account.locale}
-        />
-      </Suspense>
-
-      <NotificationSettings
-        initialPreferences={reminderPreferences}
-        vapidPublicKey={webPushPublicKey()}
-      />
     </section>
   );
 }
