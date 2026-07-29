@@ -62,7 +62,9 @@ test("lets an account edit its timezone and locale later", async ({ page }) => {
   await timezone.pressSequentially("Europe/Madrid");
   await expect(timezone).toHaveValue("Europe/Madrid");
   await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByRole("status")).toHaveText("Saved.");
+  await expect(page.getByRole("status")).toHaveText(
+    "Timezone and formatting saved.",
+  );
 
   await page.goto("/settings");
   await expect(page.getByRole("textbox", { name: "Time zone" })).toHaveValue(

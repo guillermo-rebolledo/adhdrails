@@ -44,10 +44,11 @@ export function CalendarSettings({
   return (
     <section
       aria-labelledby="calendar-settings-title"
-      className="rounded-xl border bg-card p-6 text-card-foreground"
+      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      id="calendars"
     >
       <h2 id="calendar-settings-title" className="text-lg font-medium">
-        Google Calendar
+        Calendars
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Google Calendar is optional and connected separately from sign-in. Rails

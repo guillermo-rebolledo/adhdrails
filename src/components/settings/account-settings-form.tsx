@@ -1,127 +1,167 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { authClient } from "@/lib/auth-client";
+import {
+  type AccountProfileInput,
+  type AccountProfileResponse,
+  accountProfileSchema,
+} from "@/domain/account/onboarding";
+import { apiRequest } from "@/lib/api-client";
+import type { ProblemDetails } from "@/server/http/problem";
 
 interface AccountSettingsFormProps {
   initialTimezone: string;
   initialLocale: string;
 }
 
-type SaveState =
-  | { status: "idle" }
-  | { status: "saving" }
-  | { status: "saved" }
-  | { status: "error"; message: string };
-
 export function AccountSettingsForm({
   initialTimezone,
   initialLocale,
 }: AccountSettingsFormProps) {
   const router = useRouter();
-  const [timezone, setTimezone] = useState(initialTimezone);
-  const [locale, setLocale] = useState(initialLocale);
-  const [save, setSave] = useState<SaveState>({ status: "idle" });
-  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [status, setStatus] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+  const {
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    setError,
+  } = useForm<AccountProfileInput>({
+    defaultValues: {
+      timezone: initialTimezone,
+      locale: initialLocale,
+    },
+    resolver: zodResolver(accountProfileSchema),
+  });
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSave({ status: "saving" });
+  const save = handleSubmit(
+    async (values) => {
+      setStatus(null);
+      let response;
+      try {
+        response = await apiRequest<AccountProfileResponse | ProblemDetails>(
+          "/api/v1/account",
+          {
+            method: "PATCH",
+            body: JSON.stringify(values),
+          },
+        );
+      } catch {
+        setStatus({
+          kind: "error",
+          message: "We couldn't save while offline. Your edit is still here.",
+        });
+        return;
+      }
 
-    const response = await fetch("/api/v1/account", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ timezone, locale }),
-    });
+      if (response.ok) {
+        setStatus({
+          kind: "success",
+          message: "Timezone and formatting saved.",
+        });
+        router.refresh();
+        return;
+      }
 
-    if (response.ok) {
-      setSave({ status: "saved" });
-      return;
-    }
-
-    setSave({
-      status: "error",
-      message:
-        response.status === 422
-          ? "Please enter a valid IANA time zone and locale."
-          : "We couldn't save your changes. Please try again.",
-    });
-  }
-
-  async function signOut() {
-    setIsSigningOut(true);
-    await authClient.signOut();
-    router.push("/signin");
-    router.refresh();
-  }
+      const problem = response.body as ProblemDetails | null;
+      if (problem?.fieldErrors) {
+        for (const field of ["timezone", "locale"] as const) {
+          const message = problem.fieldErrors[field]?.[0];
+          if (message) setError(field, { message });
+        }
+      }
+      setStatus({
+        kind: "error",
+        message:
+          problem?.detail ?? "We couldn't save your changes. Please try again.",
+      });
+    },
+    () => setStatus(null),
+  );
 
   return (
-    <form
-      className="rounded-xl border bg-card p-6 text-card-foreground"
-      onSubmit={onSubmit}
+    <section
+      aria-labelledby="timezone-title"
+      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      id="timezone"
     >
-      <h2 className="text-lg font-medium">Timezone &amp; formatting</h2>
+      <h2 id="timezone-title" className="text-lg font-medium">
+        Timezone
+      </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Interface copy stays in English while dates and times follow these
-        settings.
+        Change your planning context without changing the instant or original
+        timezone meaning of imported events.
       </p>
 
-      <div className="mt-4 grid grid-cols-1 gap-4">
+      <form className="mt-5 flex flex-col gap-4" onSubmit={save} noValidate>
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Time zone</span>
           <Input
+            aria-label="Time zone"
+            aria-describedby={
+              errors.timezone ? "timezone-error" : "timezone-hint"
+            }
+            aria-invalid={Boolean(errors.timezone)}
             autoComplete="off"
-            name="timezone"
-            onChange={(event) => setTimezone(event.target.value)}
-            value={timezone}
+            {...register("timezone")}
           />
-          <span className="text-xs text-muted-foreground">
-            IANA identifier, e.g. America/New_York.
-          </span>
+          {errors.timezone ? (
+            <span className="text-xs text-destructive" id="timezone-error">
+              {errors.timezone.message}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground" id="timezone-hint">
+              IANA identifier, e.g. America/New_York.
+            </span>
+          )}
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">Date &amp; time format</span>
+          <span className="text-sm font-medium">Date and time format</span>
           <Input
+            aria-label="Date and time format"
+            aria-describedby={errors.locale ? "locale-error" : "locale-hint"}
+            aria-invalid={Boolean(errors.locale)}
             autoComplete="off"
-            name="locale"
-            onChange={(event) => setLocale(event.target.value)}
-            value={locale}
+            {...register("locale")}
           />
-          <span className="text-xs text-muted-foreground">
-            BCP 47 locale, e.g. en-US.
-          </span>
+          {errors.locale ? (
+            <span className="text-xs text-destructive" id="locale-error">
+              {errors.locale.message}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground" id="locale-hint">
+              BCP 47 locale, e.g. en-US. Interface copy remains in English.
+            </span>
+          )}
         </label>
-      </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <Button disabled={save.status === "saving"} type="submit">
-          {save.status === "saving" ? "Saving…" : "Save changes"}
-        </Button>
-        <Button
-          disabled={isSigningOut}
-          onClick={signOut}
-          type="button"
-          variant="ghost"
-        >
-          Sign out
-        </Button>
-        {save.status === "saved" ? (
-          <span className="text-sm text-muted-foreground" role="status">
-            Saved.
-          </span>
-        ) : null}
-      </div>
-
-      {save.status === "error" ? (
-        <p className="mt-3 text-sm text-destructive" role="alert">
-          {save.message}
-        </p>
-      ) : null}
-    </form>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={isSubmitting} type="submit">
+            {isSubmitting ? "Saving…" : "Save changes"}
+          </Button>
+          {status ? (
+            <p
+              className={
+                status.kind === "error"
+                  ? "text-sm text-destructive"
+                  : "text-sm text-muted-foreground"
+              }
+              role={status.kind === "error" ? "alert" : "status"}
+            >
+              {status.message}
+            </p>
+          ) : null}
+        </div>
+      </form>
+    </section>
   );
 }

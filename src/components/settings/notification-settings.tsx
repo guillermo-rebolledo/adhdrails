@@ -224,7 +224,8 @@ export function NotificationSettings({
   return (
     <section
       aria-labelledby="notification-settings-title"
-      className="rounded-xl border bg-card p-6 text-card-foreground"
+      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      id="notifications"
     >
       <h2 id="notification-settings-title" className="text-lg font-medium">
         Notifications
