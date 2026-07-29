@@ -45,6 +45,11 @@ export interface FakeGoogleAdapterOptions {
    * simulate a transient Google write failure or a revoked grant.
    */
   writeError?: Error;
+  /**
+   * When set, `stopChannel` rejects — used to prove disconnect tears down
+   * locally even when Google refuses to close a watch channel.
+   */
+  failWatchStops?: boolean;
 }
 
 /** One recorded `insertEvent` call, with the id the fake assigned it. */
@@ -281,6 +286,9 @@ export function createFakeGoogleAdapter(
     },
 
     async stopChannel({ channelId, resourceId }) {
+      if (options.failWatchStops) {
+        throw new Error("channel stop failed");
+      }
       stoppedChannels.push({ channelId, resourceId });
     },
 

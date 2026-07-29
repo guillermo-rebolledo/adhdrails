@@ -17,7 +17,12 @@ import type {
   SelectedCalendar,
 } from "@/domain/calendar/connection";
 import type { Database } from "@/server/db/connection";
-import { calendarConnection, calendarSelection } from "@/server/db/schema";
+import {
+  calendarConnection,
+  calendarSelection,
+  calendarSyncJob,
+  eventExportJob,
+} from "@/server/db/schema";
 
 import type { EncryptedToken } from "./token-cipher";
 
@@ -487,9 +492,55 @@ export function createCalendarRepository(database: Database) {
         );
     },
 
-    /** Deletes the connection and its calendar snapshot. Login is untouched. */
+    /**
+     * The account's calendars that currently hold an open push-notification
+     * watch, so disconnect can stop each channel on Google before it revokes the
+     * grant. Only calendars with a stored channel are returned.
+     */
+    async listWatchedCalendars(userId: string): Promise<WatchedCalendar[]> {
+      const rows = await database
+        .select({
+          googleCalendarId: calendarSelection.googleCalendarId,
+          watchChannelId: calendarSelection.watchChannelId,
+          watchResourceId: calendarSelection.watchResourceId,
+        })
+        .from(calendarSelection)
+        .where(
+          and(
+            eq(calendarSelection.userId, userId),
+            isNotNull(calendarSelection.watchChannelId),
+            isNotNull(calendarSelection.watchResourceId),
+          ),
+        )
+        .orderBy(asc(calendarSelection.googleCalendarId));
+
+      return rows.flatMap((row) =>
+        row.watchChannelId && row.watchResourceId
+          ? [
+              {
+                googleCalendarId: row.googleCalendarId,
+                watchChannelId: row.watchChannelId,
+                watchResourceId: row.watchResourceId,
+              },
+            ]
+          : [],
+      );
+    },
+
+    /**
+     * Deletes the connection, its calendar snapshot (which carries the local
+     * watch bookkeeping), and every queued Calendar sync/export job for the
+     * account, in one transaction. Login and local Events are untouched; the
+     * cleared jobs mean no drain runs orphaned Calendar work after disconnect.
+     */
     async deleteConnection(userId: string): Promise<void> {
       await database.transaction(async (tx) => {
+        await tx
+          .delete(calendarSyncJob)
+          .where(eq(calendarSyncJob.userId, userId));
+        await tx
+          .delete(eventExportJob)
+          .where(eq(eventExportJob.userId, userId));
         await tx
           .delete(calendarSelection)
           .where(eq(calendarSelection.userId, userId));
@@ -499,6 +550,13 @@ export function createCalendarRepository(database: Database) {
       });
     },
   };
+}
+
+/** A calendar with an open Google watch channel, for disconnect teardown. */
+export interface WatchedCalendar {
+  googleCalendarId: string;
+  watchChannelId: string;
+  watchResourceId: string;
 }
 
 export type CalendarRepository = ReturnType<typeof createCalendarRepository>;

@@ -738,6 +738,70 @@ export const taskReminderDelivery = pgTable(
   ],
 );
 
+/**
+ * One account's data-export job (MEM-48). A user asks Rails to assemble their
+ * app-owned data — Inbox Items, Tasks, Thoughts, local Events, Areas,
+ * preferences, and Focus Session history — into a downloadable JSON archive.
+ * Mirrored Google Calendar data and any secret or provider credentials are
+ * excluded by construction: the assembled document only ever holds app-owned
+ * fields. Generation is durable and idempotent: a mutation records a `pending`
+ * row, a durable Inngest job builds the archive out of band, and the finished
+ * JSON is stored in `payload` so a download never re-computes it. `status` is a
+ * constrained text union ("pending" | "processing" | "completed" | "failed" |
+ * "expired"); `attempts` and `last_error_code` give failure visibility without
+ * ever recording exported content. A completed archive `expires_at` a bounded
+ * time later, after which cleanup clears `payload` and marks the row `expired`,
+ * so a user's data is not retained on the server indefinitely. The partial
+ * unique index makes a re-request while one is in flight a no-op rather than a
+ * pile-up.
+ */
+export const dataExport = pgTable(
+  "data_export",
+  {
+    id: uuid("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    // The assembled JSON archive, set once on completion and cleared on expiry.
+    // App-owned content only; never tokens, provider payloads, or mirrored data.
+    payload: text("payload"),
+    byteSize: integer("byte_size"),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Resolves an account's latest export newest-first for the Settings status.
+    index("data_export_account_created_idx").on(
+      table.userId,
+      table.createdAt,
+      table.id,
+    ),
+    // At most one in-flight export per account: a re-request re-arms the existing
+    // job instead of enqueuing a second, so the outbox never piles up duplicates.
+    uniqueIndex("data_export_one_active_idx")
+      .on(table.userId)
+      .where(sql`status in ('pending', 'processing')`),
+    // Drains the outbox oldest-first over the pending rows.
+    index("data_export_status_created_idx").on(
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

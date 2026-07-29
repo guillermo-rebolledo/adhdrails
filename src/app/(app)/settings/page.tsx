@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { ExternalLinkIcon } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,8 +7,10 @@ import { AccountSettings } from "@/components/settings/account-settings";
 import { AccountSettingsForm } from "@/components/settings/account-settings-form";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { CalendarSettings } from "@/components/settings/calendar-settings";
+import { DataPrivacySettings } from "@/components/settings/data-privacy-settings";
 import { NotificationSettings } from "@/components/settings/notification-settings";
 import { SETTINGS_SECTION_CLASS_NAME } from "@/components/settings/settings-section";
+import { getDataExportService } from "@/server/account/service-factory";
 import { getAccountSummary } from "@/server/auth/session";
 import { serializeConnection } from "@/server/calendar/http";
 import { getCalendarService } from "@/server/calendar/service-factory";
@@ -33,10 +34,13 @@ export default async function SettingsPage() {
     redirect("/signin");
   }
 
-  const [connection, reminderPreferences] = await Promise.all([
-    getCalendarService().getConnection(account.userId),
-    getNotificationService().getPreferences(account.userId),
-  ]);
+  const [connection, reminderPreferences, dataExportStatus] = await Promise.all(
+    [
+      getCalendarService().getConnection(account.userId),
+      getNotificationService().getPreferences(account.userId),
+      getDataExportService().getStatus(account.userId),
+    ],
+  );
 
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -93,26 +97,7 @@ export default async function SettingsPage() {
             initialLocale={account.locale}
           />
 
-          <section
-            aria-labelledby="data-privacy-title"
-            className={SETTINGS_SECTION_CLASS_NAME}
-            id="data-privacy"
-          >
-            <h2 id="data-privacy-title" className="text-lg font-medium">
-              Data &amp; Privacy
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Rails keeps app-owned content separate from mirrored Google
-              Calendar data and never uses your content for session replay.
-            </p>
-            <Link
-              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline"
-              href="/privacy"
-            >
-              Read how Rails handles data
-              <ExternalLinkIcon aria-hidden="true" className="size-3.5" />
-            </Link>
-          </section>
+          <DataPrivacySettings initialStatus={dataExportStatus} />
 
           <section
             aria-labelledby="about-support-title"

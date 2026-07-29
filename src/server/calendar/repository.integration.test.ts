@@ -6,6 +6,8 @@ import { createDatabaseConnection } from "@/server/db/client";
 import {
   calendarConnection,
   calendarSelection,
+  calendarSyncJob,
+  eventExportJob,
   user,
 } from "@/server/db/schema";
 
@@ -301,6 +303,74 @@ describe.skipIf(!connection)(
         .where(eq(calendarSelection.userId, USER_IDS[0]));
       expect(orphanConnections).toEqual([]);
       expect(orphanCalendars).toEqual([]);
+    });
+
+    it("lists only calendars that hold an open watch channel", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: null,
+        primaryTimeZone: null,
+        calendars: [
+          calendar({ googleCalendarId: "watched", isWritable: true }),
+          calendar({ googleCalendarId: "unwatched", isWritable: false }),
+        ],
+      });
+      await repository().saveWatch(USER_IDS[0], "watched", {
+        channelId: "chan-1",
+        resourceId: "res-1",
+        token: "verify-1",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      });
+
+      const watched = await repository().listWatchedCalendars(USER_IDS[0]);
+      expect(watched).toEqual([
+        {
+          googleCalendarId: "watched",
+          watchChannelId: "chan-1",
+          watchResourceId: "res-1",
+        },
+      ]);
+    });
+
+    it("clears queued sync and export jobs on disconnect", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: null,
+        primaryTimeZone: null,
+        calendars: [calendar()],
+      });
+      await connection!.database.insert(calendarSyncJob).values({
+        id: crypto.randomUUID(),
+        userId: USER_IDS[0],
+        googleCalendarId: "primary@example.com",
+        channelId: "chan-1",
+        messageNumber: 1,
+      });
+      await connection!.database.insert(eventExportJob).values({
+        id: crypto.randomUUID(),
+        userId: USER_IDS[0],
+        eventId: crypto.randomUUID(),
+        operation: "upsert",
+      });
+
+      await repository().deleteConnection(USER_IDS[0]);
+
+      const syncJobs = await connection!.database
+        .select()
+        .from(calendarSyncJob)
+        .where(eq(calendarSyncJob.userId, USER_IDS[0]));
+      const exportJobs = await connection!.database
+        .select()
+        .from(eventExportJob)
+        .where(eq(eventExportJob.userId, USER_IDS[0]));
+      expect(syncJobs).toEqual([]);
+      expect(exportJobs).toEqual([]);
     });
   },
 );

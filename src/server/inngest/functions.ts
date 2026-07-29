@@ -17,6 +17,15 @@ import {
   INCREMENTAL_SYNC_EVENT,
   drainPendingSyncJobs,
 } from "@/server/calendar/sync-dispatcher";
+import {
+  DATA_EXPORT_EVENT,
+  drainPendingDataExports,
+} from "@/server/account/data-export-dispatcher";
+import { runDataExportJob } from "@/server/account/run-data-export-job";
+import {
+  getDataExportDispatcher,
+  getDataExportRepository,
+} from "@/server/account/service-factory";
 import { logOperationalEvent } from "@/server/observability/logger";
 import { getReminderDeliveryService } from "@/server/notification/service-factory";
 
@@ -281,6 +290,98 @@ export const timedTaskReminders = inngest.createFunction(
   },
 );
 
+/**
+ * The durable data exporter (MEM-48). A request records a `pending` row and
+ * dispatches this function; it reloads the job by id and assembles the account's
+ * app-owned archive to completion. Inngest owns retry and run history, so a
+ * transient failure re-runs the whole idempotent body — a finished job
+ * short-circuits, so a retry never double-produces. Only safe metadata is logged
+ * as the operational audit record; exported content and titles never reach the log.
+ */
+export const accountDataExport = inngest.createFunction(
+  {
+    id: "account-data-export",
+    retries: 3,
+    triggers: [{ event: DATA_EXPORT_EVENT }],
+  },
+  async ({ event }) => {
+    const jobId = String((event.data as { jobId?: unknown }).jobId ?? "");
+
+    const result = await runDataExportJob(
+      { repository: getDataExportRepository() },
+      jobId,
+    );
+
+    logOperationalEvent({
+      correlationId: jobId,
+      action: "account.data_exported",
+      outcome: result.status === "failed" ? "failure" : "success",
+      safeCode:
+        result.status === "failed" || result.status === "skipped"
+          ? result.reason
+          : undefined,
+    });
+
+    return result;
+  },
+);
+
+/**
+ * The scheduled data-export drain (MEM-48). The request path dispatches inline
+ * for immediacy, but a dispatch that fails after the pending row is committed
+ * would otherwise leave a durable job with nothing to run it. This periodic
+ * sweep redelivers any such rows to the exporter, so the transactional outbox's
+ * durability guarantee holds. Redelivery is safe: the export body is idempotent
+ * and a finished job short-circuits.
+ */
+export const accountDataExportOutboxDrain = inngest.createFunction(
+  {
+    id: "account-data-export-outbox-drain",
+    triggers: [{ cron: "*/5 * * * *" }],
+  },
+  async () => {
+    const dispatched = await drainPendingDataExports({
+      repository: getDataExportRepository(),
+      dispatcher: getDataExportDispatcher(),
+    });
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "account.data_export_outbox_drained",
+      outcome: "success",
+    });
+
+    return { dispatched };
+  },
+);
+
+/**
+ * Scheduled data-export expiry (MEM-48). A completed archive is downloadable for
+ * a bounded window; this daily sweep marks every archive past its window
+ * `expired` and clears its stored payload, so a user's exported data is never
+ * retained on the server indefinitely. Idempotent and safe to re-run; only safe
+ * metadata is logged.
+ */
+export const accountDataExportCleanup = inngest.createFunction(
+  {
+    id: "account-data-export-cleanup",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "0 4 * * *" }],
+  },
+  async () => {
+    const expired = await getDataExportRepository().expireCompleted(new Date());
+
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "account.data_exports_expired",
+      outcome: "success",
+    });
+
+    return { expired };
+  },
+);
+
 /** All Inngest functions Rails serves. */
 export const inngestFunctions = [
   calendarIncrementalSync,
@@ -291,4 +392,7 @@ export const inngestFunctions = [
   calendarReconciliation,
   calendarMirrorCleanup,
   timedTaskReminders,
+  accountDataExport,
+  accountDataExportOutboxDrain,
+  accountDataExportCleanup,
 ];
