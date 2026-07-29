@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { Geist } from "next/font/google";
 import { SerwistProvider } from "@serwist/turbopack/react";
 
+import { AnalyticsProvider } from "@/components/analytics/analytics-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,9 @@ export default async function RootLayout({
             enableSystem
             nonce={nonce}
           >
-            <TooltipProvider>{children}</TooltipProvider>
+            <AnalyticsProvider nonce={nonce}>
+              <TooltipProvider>{children}</TooltipProvider>
+            </AnalyticsProvider>
           </ThemeProvider>
         </SerwistProvider>
       </body>

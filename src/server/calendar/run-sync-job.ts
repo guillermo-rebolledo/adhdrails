@@ -9,12 +9,13 @@ export interface RunSyncJobDependencies {
 export type RunSyncJobResult =
   | {
       status: "completed";
+      userId: string;
       changed: number;
       removed: number;
       recovered: boolean;
     }
   | { status: "skipped"; reason: "unknown_job" | "already_completed" }
-  | { status: "failed"; reason: string };
+  | { status: "failed"; userId: string; reason: string };
 
 /**
  * Runs one outbox job to completion: the durable, idempotent body the Inngest
@@ -50,6 +51,7 @@ export async function runIncrementalSyncJob(
     await syncJobRepository.markCompleted(jobId);
     return {
       status: "completed",
+      userId: job.userId,
       changed: result.changed,
       removed: result.removed,
       recovered: result.recovered,
@@ -58,5 +60,5 @@ export async function runIncrementalSyncJob(
 
   // Terminal, non-retryable reasons: record a safe code for failure visibility.
   await syncJobRepository.markFailed(jobId, result.reason);
-  return { status: "failed", reason: result.reason };
+  return { status: "failed", userId: job.userId, reason: result.reason };
 }

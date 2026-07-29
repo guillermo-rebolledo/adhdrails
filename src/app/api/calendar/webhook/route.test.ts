@@ -5,6 +5,8 @@ import type {
   WebhookOutcome,
 } from "@/server/calendar/webhook-service";
 
+import { createInMemoryRateLimiter } from "@/server/rate-limit/limiter";
+
 import { createCalendarWebhookRouteHandlers } from "./route";
 
 function post(headers: Record<string, string> = {}): Request {
@@ -14,12 +16,17 @@ function post(headers: Record<string, string> = {}): Request {
   });
 }
 
-function handlers(outcome: WebhookOutcome, handleNotification = vi.fn()) {
+function handlers(
+  outcome: WebhookOutcome,
+  handleNotification = vi.fn(),
+  rateLimiter = createInMemoryRateLimiter(),
+) {
   handleNotification.mockResolvedValue(outcome);
   const service = { handleNotification } as unknown as CalendarWebhookService;
   const { POST } = createCalendarWebhookRouteHandlers({
     getService: () => service,
     createCorrelationId: () => "cor_1",
+    rateLimiter,
   });
   return { POST, handleNotification };
 }
@@ -73,5 +80,55 @@ describe("POST /api/calendar/webhook", () => {
   it("tells Google to stop an unverifiable channel with 404", async () => {
     const { POST } = handlers({ kind: "unverified" });
     expect((await POST(post())).status).toBe(404);
+  });
+
+  it("rejects a flood from one client IP with 429 and a Retry-After header", async () => {
+    const handleNotification = vi.fn();
+    const rateLimiter = createInMemoryRateLimiter();
+    const { POST } = handlers(
+      { kind: "handshake" },
+      handleNotification,
+      rateLimiter,
+    );
+    // Keyed on the forwarded IP, not the spoofable channel id header.
+    const flood = post({
+      "x-forwarded-for": "198.51.100.9",
+      "X-Goog-Channel-ID": "chan-noisy",
+    });
+
+    // The rule allows 60/minute; the 61st within the window is throttled.
+    let last: Response | undefined;
+    for (let i = 0; i < 61; i += 1) {
+      last = await POST(flood);
+    }
+
+    expect(last?.status).toBe(429);
+    expect(last?.headers.get("retry-after")).toBeTruthy();
+    // The throttled request never reached the service.
+    expect(handleNotification).toHaveBeenCalledTimes(60);
+  });
+
+  it("cannot be bypassed by rotating the channel-id header", async () => {
+    const handleNotification = vi.fn();
+    const rateLimiter = createInMemoryRateLimiter();
+    const { POST } = handlers(
+      { kind: "handshake" },
+      handleNotification,
+      rateLimiter,
+    );
+
+    // Same IP, a fresh channel id every request: the window must still exhaust.
+    let last: Response | undefined;
+    for (let i = 0; i < 61; i += 1) {
+      last = await POST(
+        post({
+          "x-forwarded-for": "198.51.100.9",
+          "X-Goog-Channel-ID": `chan-${i}`,
+        }),
+      );
+    }
+
+    expect(last?.status).toBe(429);
+    expect(handleNotification).toHaveBeenCalledTimes(60);
   });
 });

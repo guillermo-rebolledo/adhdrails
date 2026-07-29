@@ -96,6 +96,7 @@ try {
       "src/server/search/repository.integration.test.ts",
       "src/server/account/data-export-repository.integration.test.ts",
       "src/server/account/deletion-repository.integration.test.ts",
+      "src/server/observability/audit.integration.test.ts",
     ],
     environment,
   );

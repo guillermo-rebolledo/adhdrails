@@ -11,6 +11,7 @@ export const problemCodeSchema = z.enum([
   "push_unavailable",
   "recurring_series_edit",
   "calendar_reauth_required",
+  "rate_limited",
 ]);
 
 export type ProblemCode = z.infer<typeof problemCodeSchema>;
