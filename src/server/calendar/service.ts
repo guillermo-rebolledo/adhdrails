@@ -201,6 +201,46 @@ export function createCalendarService(deps: CalendarServiceDependencies) {
       await repository.deleteConnection(userId);
       return { wasConnected: true };
     },
+
+    /**
+     * Account deletion uses the same watch-first teardown but requires provider
+     * revocation to succeed before local credentials are destroyed. A transient
+     * revocation error therefore propagates to Inngest for retry while the Rails
+     * account remains disabled.
+     */
+    async disconnectForAccountDeletion(
+      userId: string,
+    ): Promise<DisconnectResult> {
+      const connection = await repository.getConnection(userId, {
+        includeDeleting: true,
+      });
+      if (!connection) {
+        return { wasConnected: false };
+      }
+
+      const refreshToken = cipher.decrypt(connection.encryptedRefreshToken);
+      try {
+        const watched = await repository.listWatchedCalendars(userId);
+        if (watched.length > 0) {
+          const { accessToken } = await adapter.refreshAccessToken({
+            refreshToken,
+          });
+          for (const calendar of watched) {
+            await adapter.stopChannel({
+              accessToken,
+              channelId: calendar.watchChannelId,
+              resourceId: calendar.watchResourceId,
+            });
+          }
+        }
+      } catch {
+        // Revocation below invalidates any watch that could not be stopped.
+      }
+
+      await adapter.revoke({ token: refreshToken });
+      await repository.deleteConnection(userId);
+      return { wasConnected: true };
+    },
   };
 }
 

@@ -273,6 +273,48 @@ describe.skipIf(!connection)(
       ]);
     });
 
+    it("hides a deleting account from webhooks and normal Calendar workers", async () => {
+      await repository().saveConnection(USER_IDS[0], {
+        status: "connected",
+        googleAccountId: null,
+        scope: "s",
+        encryptedRefreshToken: token,
+        primaryCalendarId: "primary@example.com",
+        primaryTimeZone: null,
+        calendars: [calendar()],
+      });
+      await repository().saveWatch(USER_IDS[0], "primary@example.com", {
+        channelId: "deleting-channel",
+        resourceId: "deleting-resource",
+        token: "deleting-token",
+        expiresAt: new Date("2026-07-29T12:00:00.000Z"),
+      });
+      await connection!.database
+        .update(user)
+        .set({ deletionRequestedAt: new Date("2026-07-28T12:00:00.000Z") })
+        .where(eq(user.id, USER_IDS[0]));
+
+      await expect(repository().getConnection(USER_IDS[0])).resolves.toBeNull();
+      await expect(
+        repository().getConnection(USER_IDS[0], { includeDeleting: true }),
+      ).resolves.toMatchObject({ userId: USER_IDS[0] });
+      await expect(
+        repository().getCalendar(USER_IDS[0], "primary@example.com"),
+      ).resolves.toBeNull();
+      await expect(
+        repository().getCalendarByChannel("deleting-channel"),
+      ).resolves.toBeNull();
+      await expect(
+        repository().listVisibleCalendarSyncState(USER_IDS[0]),
+      ).resolves.toEqual([]);
+      await expect(repository().listConnectedUserIds()).resolves.toEqual([]);
+      await expect(
+        repository().listCalendarsDueForReconciliation(
+          new Date("2026-07-29T12:00:00.000Z"),
+        ),
+      ).resolves.toEqual([]);
+    });
+
     it("deletes the connection and its calendars without touching the user", async () => {
       await repository().saveConnection(USER_IDS[0], {
         status: "connected",

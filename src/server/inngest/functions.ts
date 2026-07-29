@@ -25,7 +25,18 @@ import { runDataExportJob } from "@/server/account/run-data-export-job";
 import {
   getDataExportDispatcher,
   getDataExportRepository,
+  getAccountDeletionDispatcher,
+  getAccountDeletionRepository,
 } from "@/server/account/service-factory";
+import {
+  ACCOUNT_DELETION_EVENT,
+  drainPendingAccountDeletions,
+} from "@/server/account/deletion-dispatcher";
+import { runAccountDeletionJob } from "@/server/account/run-account-deletion-job";
+import {
+  getCalendarService,
+  revokeGoogleProviderToken,
+} from "@/server/calendar/service-factory";
 import { logOperationalEvent } from "@/server/observability/logger";
 import { getReminderDeliveryService } from "@/server/notification/service-factory";
 
@@ -382,6 +393,73 @@ export const accountDataExportCleanup = inngest.createFunction(
   },
 );
 
+/** Durable account cleanup. Access was already disabled by the request path. */
+export const accountDeletionCleanup = inngest.createFunction(
+  {
+    id: "account-deletion-cleanup",
+    retries: 5,
+    triggers: [{ event: ACCOUNT_DELETION_EVENT }],
+  },
+  async ({ event }) => {
+    const jobId = String((event.data as { jobId?: unknown }).jobId ?? "");
+    const result = await runAccountDeletionJob(
+      {
+        repository: getAccountDeletionRepository(),
+        disconnectCalendar: (userId) =>
+          getCalendarService().disconnectForAccountDeletion(userId),
+        revokeProviderToken: revokeGoogleProviderToken,
+      },
+      jobId,
+    );
+
+    logOperationalEvent({
+      correlationId: jobId,
+      action: "account.deleted",
+      outcome: result.status === "completed" ? "success" : "failure",
+      safeCode: result.status === "skipped" ? result.reason : undefined,
+    });
+    return result;
+  },
+);
+
+/** Backstop for a request whose inline Inngest dispatch did not arrive. */
+export const accountDeletionOutboxDrain = inngest.createFunction(
+  {
+    id: "account-deletion-outbox-drain",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "*/5 * * * *" }],
+  },
+  async () => {
+    const dispatched = await drainPendingAccountDeletions({
+      repository: getAccountDeletionRepository(),
+      dispatcher: getAccountDeletionDispatcher(),
+    });
+    return { dispatched };
+  },
+);
+
+/** Purges completed deletion receipts at 30 days and audit metadata at 90. */
+export const accountDataLifecycleCleanup = inngest.createFunction(
+  {
+    id: "account-data-lifecycle-cleanup",
+    retries: 3,
+    concurrency: { limit: 1 },
+    triggers: [{ cron: "0 5 * * *" }],
+  },
+  async () => {
+    const purged = await getAccountDeletionRepository().purgeExpired(
+      new Date(),
+    );
+    logOperationalEvent({
+      correlationId: crypto.randomUUID(),
+      action: "account.lifecycle_purged",
+      outcome: "success",
+    });
+    return purged;
+  },
+);
+
 /** All Inngest functions Rails serves. */
 export const inngestFunctions = [
   calendarIncrementalSync,
@@ -395,4 +473,7 @@ export const inngestFunctions = [
   accountDataExport,
   accountDataExportOutboxDrain,
   accountDataExportCleanup,
+  accountDeletionCleanup,
+  accountDeletionOutboxDrain,
+  accountDataLifecycleCleanup,
 ];

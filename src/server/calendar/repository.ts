@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   isNotNull,
   isNull,
   lt,
@@ -22,6 +23,7 @@ import {
   calendarSelection,
   calendarSyncJob,
   eventExportJob,
+  user,
 } from "@/server/db/schema";
 
 import type { EncryptedToken } from "./token-cipher";
@@ -172,11 +174,31 @@ function toSelectedCalendar(row: {
  */
 export function createCalendarRepository(database: Database) {
   return {
-    async getConnection(userId: string): Promise<ConnectionRecord | null> {
+    async getConnection(
+      userId: string,
+      options: { includeDeleting?: boolean } = {},
+    ): Promise<ConnectionRecord | null> {
       const [row] = await database
         .select()
         .from(calendarConnection)
-        .where(eq(calendarConnection.userId, userId))
+        .where(
+          and(
+            eq(calendarConnection.userId, userId),
+            options.includeDeleting
+              ? undefined
+              : exists(
+                  database
+                    .select({ id: user.id })
+                    .from(user)
+                    .where(
+                      and(
+                        eq(user.id, calendarConnection.userId),
+                        isNull(user.deletionRequestedAt),
+                      ),
+                    ),
+                ),
+          ),
+        )
         .limit(1);
 
       return row ? toConnectionRecord(row) : null;
@@ -335,6 +357,17 @@ export function createCalendarRepository(database: Database) {
           and(
             eq(calendarSelection.userId, userId),
             eq(calendarSelection.isWritable, true),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
           ),
         )
         .limit(1);
@@ -354,6 +387,17 @@ export function createCalendarRepository(database: Database) {
           and(
             eq(calendarSelection.userId, userId),
             eq(calendarSelection.googleCalendarId, googleCalendarId),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
           ),
         )
         .limit(1);
@@ -374,7 +418,22 @@ export function createCalendarRepository(database: Database) {
       const [row] = await database
         .select(syncRecordColumns)
         .from(calendarSelection)
-        .where(eq(calendarSelection.watchChannelId, channelId))
+        .where(
+          and(
+            eq(calendarSelection.watchChannelId, channelId),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
+          ),
+        )
         .limit(1);
 
       return row ? toSyncRecord(row) : null;
@@ -391,6 +450,17 @@ export function createCalendarRepository(database: Database) {
           and(
             eq(calendarSelection.userId, userId),
             eq(calendarSelection.isVisible, true),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
           ),
         )
         .orderBy(asc(calendarSelection.googleCalendarId));
@@ -417,6 +487,17 @@ export function createCalendarRepository(database: Database) {
           and(
             eq(calendarSelection.userId, userId),
             eq(calendarSelection.googleCalendarId, googleCalendarId),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
           ),
         );
     },
@@ -450,7 +531,22 @@ export function createCalendarRepository(database: Database) {
       const rows = await database
         .select({ userId: calendarConnection.userId })
         .from(calendarConnection)
-        .where(eq(calendarConnection.status, "connected"))
+        .where(
+          and(
+            eq(calendarConnection.status, "connected"),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarConnection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
+          ),
+        )
         .orderBy(asc(calendarConnection.userId));
 
       return rows.map((row) => row.userId);
@@ -480,6 +576,17 @@ export function createCalendarRepository(database: Database) {
           and(
             eq(calendarConnection.status, "connected"),
             eq(calendarSelection.isVisible, true),
+            exists(
+              database
+                .select({ id: user.id })
+                .from(user)
+                .where(
+                  and(
+                    eq(user.id, calendarSelection.userId),
+                    isNull(user.deletionRequestedAt),
+                  ),
+                ),
+            ),
             or(
               isNull(calendarSelection.lastSyncedAt),
               lt(calendarSelection.lastSyncedAt, before),

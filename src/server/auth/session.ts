@@ -21,7 +21,7 @@ export async function getAccountSummary(
 ): Promise<AccountSummary | null> {
   const context = await getAuth().api.getSession({ headers: requestHeaders });
 
-  if (!context?.user) {
+  if (!context?.user || context.user.deletionRequestedAt) {
     return null;
   }
 

@@ -1,13 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { AccountDeletionStatusResponse } from "@/domain/account/deletion";
+import { apiRequest } from "@/lib/api-client";
 import { authClient } from "@/lib/auth-client";
 
-export function SignInForm() {
+export function SignInForm({
+  deletionConfirmed = false,
+  deletionReceipt,
+}: {
+  deletionConfirmed?: boolean;
+  deletionReceipt?: string;
+}) {
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deletionStatus, setDeletionStatus] =
+    useState<AccountDeletionStatusResponse | null>(null);
+
+  useEffect(() => {
+    if (!deletionConfirmed || !deletionReceipt) {
+      return;
+    }
+
+    let active = true;
+    async function refresh() {
+      const response = await apiRequest<AccountDeletionStatusResponse>(
+        `/api/v1/account/deletion/${encodeURIComponent(deletionReceipt!)}`,
+      ).catch(() => null);
+      if (active && response?.ok && response.body) {
+        setDeletionStatus(response.body);
+        if (response.body.status === "completed") {
+          clearInterval(timer);
+        }
+      }
+    }
+
+    void refresh();
+    const timer = setInterval(() => void refresh(), 2500);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [deletionConfirmed, deletionReceipt]);
 
   async function signInWithGoogle() {
     setIsPending(true);
@@ -37,6 +73,18 @@ export function SignInForm() {
       </div>
 
       <div className="mt-8 flex flex-col gap-3">
+        {deletionConfirmed ? (
+          <p
+            className="rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground"
+            role="status"
+          >
+            {deletionStatus?.status === "completed"
+              ? "Your account and Rails content have been permanently deleted."
+              : deletionStatus?.status === "failed"
+                ? "Your account remains disabled while Rails safely retries permanent cleanup."
+                : "Your account deletion was confirmed. Rails has signed you out and is completing the permanent cleanup."}
+          </p>
+        ) : null}
         <Button
           className="w-full"
           disabled={isPending}

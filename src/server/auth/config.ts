@@ -122,6 +122,11 @@ export function createAuth(
           required: false,
           input: false,
         },
+        deletionRequestedAt: {
+          type: "date",
+          required: false,
+          input: false,
+        },
       },
     },
     session: {

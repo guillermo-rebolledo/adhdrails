@@ -214,7 +214,7 @@ describe("listEvents", () => {
 });
 
 describe("revoke", () => {
-  it("posts the token and never throws on a failed revocation", async () => {
+  it("posts the token and treats an already-invalid grant as revoked", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 400 }));
@@ -224,6 +224,17 @@ describe("revoke", () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://oauth2.googleapis.com/revoke",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("surfaces a transient revocation failure so durable deletion can retry", async () => {
+    const adapter = createGoogleCalendarAuthAdapter(
+      config,
+      vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+    );
+
+    await expect(adapter.revoke({ token: "rt" })).rejects.toThrow(
+      "Google token revocation failed (503).",
     );
   });
 });

@@ -97,7 +97,10 @@ export default async function SettingsPage() {
             initialLocale={account.locale}
           />
 
-          <DataPrivacySettings initialStatus={dataExportStatus} />
+          <DataPrivacySettings
+            initialStatus={dataExportStatus}
+            accountId={account.userId}
+          />
 
           <section
             aria-labelledby="about-support-title"

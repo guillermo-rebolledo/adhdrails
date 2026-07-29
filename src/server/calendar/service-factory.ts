@@ -79,6 +79,11 @@ function resolveAdapter(): GoogleCalendarAuthAdapter {
   return createGoogleCalendarAuthAdapter(readGoogleOAuthConfig());
 }
 
+/** Revokes a Google identity grant during durable account deletion. */
+export async function revokeGoogleProviderToken(token: string): Promise<void> {
+  await resolveAdapter().revoke({ token });
+}
+
 /**
  * The job dispatcher for the current runtime. Test runs record dispatches to a
  * process singleton so the webhook route is driven deterministically without an

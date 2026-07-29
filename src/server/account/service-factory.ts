@@ -14,6 +14,19 @@ import {
   createDataExportService,
   type DataExportService,
 } from "./data-export-service";
+import {
+  createAccountDeletionDispatcher,
+  createRecordingAccountDeletionDispatcher,
+  type AccountDeletionDispatcher,
+} from "./deletion-dispatcher";
+import {
+  createAccountDeletionRepository,
+  type AccountDeletionRepository,
+} from "./deletion-repository";
+import {
+  createAccountDeletionService,
+  type AccountDeletionService,
+} from "./deletion-service";
 
 /**
  * The data-export dispatcher for the current runtime. Test runs record
@@ -24,6 +37,9 @@ import {
  */
 let recordingDataExportDispatcher: ReturnType<
   typeof createRecordingDataExportDispatcher
+> | null = null;
+let recordingAccountDeletionDispatcher: ReturnType<
+  typeof createRecordingAccountDeletionDispatcher
 > | null = null;
 
 function resolveDataExportDispatcher(): DataExportDispatcher {
@@ -49,5 +65,29 @@ export function getDataExportService(): DataExportService {
   return createDataExportService({
     repository: getDataExportRepository(),
     dispatcher: resolveDataExportDispatcher(),
+  });
+}
+
+function resolveAccountDeletionDispatcher(): AccountDeletionDispatcher {
+  if (process.env.APP_ENV === "test") {
+    recordingAccountDeletionDispatcher ??=
+      createRecordingAccountDeletionDispatcher();
+    return recordingAccountDeletionDispatcher;
+  }
+  return createAccountDeletionDispatcher(inngest);
+}
+
+export function getAccountDeletionDispatcher(): AccountDeletionDispatcher {
+  return resolveAccountDeletionDispatcher();
+}
+
+export function getAccountDeletionRepository(): AccountDeletionRepository {
+  return createAccountDeletionRepository(getDatabase());
+}
+
+export function getAccountDeletionService(): AccountDeletionService {
+  return createAccountDeletionService({
+    repository: getAccountDeletionRepository(),
+    dispatcher: resolveAccountDeletionDispatcher(),
   });
 }

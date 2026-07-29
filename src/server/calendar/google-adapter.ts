@@ -523,13 +523,21 @@ export function createGoogleCalendarAuthAdapter(
     },
 
     async revoke({ token }) {
-      // Revocation is best-effort: an already-invalid token still leaves Rails
-      // free to drop its local connection, so a non-2xx response is swallowed.
-      await fetchImpl(REVOKE_ENDPOINT, {
+      const response = await fetchImpl(REVOKE_ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ token }),
-      }).catch(() => undefined);
+      });
+      // Google answers 400 when a token is already invalid. That is the desired
+      // end state and therefore an idempotent success. Transient/network failures
+      // surface so durable account deletion can retry; Calendar disconnect still
+      // catches them because its local teardown is deliberately best-effort.
+      if (response.status === 400) {
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`Google token revocation failed (${response.status}).`);
+      }
     },
   };
 }
