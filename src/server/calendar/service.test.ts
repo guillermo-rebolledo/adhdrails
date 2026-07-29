@@ -8,6 +8,7 @@ import type {
   CalendarRepository,
   ConnectionRecord,
   SaveConnectionInput,
+  WatchedCalendar,
 } from "./repository";
 import { createCalendarService } from "./service";
 import { createTokenCipher } from "./token-cipher";
@@ -17,6 +18,7 @@ function inMemoryRepository() {
   const connections = new Map<string, ConnectionRecord>();
   const calendars = new Map<string, SelectedCalendar[]>();
   const syncState = new Map<string, Map<string, Date>>();
+  const watched = new Map<string, WatchedCalendar[]>();
 
   const repository: CalendarRepository = {
     async getConnection(userId) {
@@ -87,14 +89,18 @@ function inMemoryRepository() {
       return [];
     },
     async saveWatch() {},
+    async listWatchedCalendars(userId) {
+      return (watched.get(userId) ?? []).map((c) => ({ ...c }));
+    },
     async deleteConnection(userId) {
       connections.delete(userId);
       calendars.delete(userId);
       syncState.delete(userId);
+      watched.delete(userId);
     },
   };
 
-  return { repository, connections, calendars };
+  return { repository, connections, calendars, watched };
 }
 
 function cipher() {
@@ -294,6 +300,55 @@ describe("disconnect", () => {
 
     expect(result).toEqual({ wasConnected: true });
     expect(adapter.revokedTokens).toEqual(["refresh-for-abc"]);
+    expect(connections.has("user_1")).toBe(false);
+  });
+
+  it("stops each open Google watch channel before revoking the grant", async () => {
+    const { repository, watched } = inMemoryRepository();
+    const adapter = createFakeGoogleAdapter();
+    const service = createCalendarService({
+      repository,
+      adapter,
+      cipher: cipher(),
+    });
+    await service.completeAuthorization("user_1", "abc");
+    watched.set("user_1", [
+      {
+        googleCalendarId: "primary@example.com",
+        watchChannelId: "chan-1",
+        watchResourceId: "res-1",
+      },
+    ]);
+
+    const result = await service.disconnect("user_1");
+
+    expect(result).toEqual({ wasConnected: true });
+    expect(adapter.stoppedChannels).toEqual([
+      { channelId: "chan-1", resourceId: "res-1" },
+    ]);
+    expect(adapter.revokedTokens).toEqual(["refresh-for-abc"]);
+  });
+
+  it("still tears down locally when stopping a watch fails", async () => {
+    const { repository, watched, connections } = inMemoryRepository();
+    const adapter = createFakeGoogleAdapter({ failWatchStops: true });
+    const service = createCalendarService({
+      repository,
+      adapter,
+      cipher: cipher(),
+    });
+    await service.completeAuthorization("user_1", "abc");
+    watched.set("user_1", [
+      {
+        googleCalendarId: "primary@example.com",
+        watchChannelId: "chan-1",
+        watchResourceId: "res-1",
+      },
+    ]);
+
+    const result = await service.disconnect("user_1");
+
+    expect(result).toEqual({ wasConnected: true });
     expect(connections.has("user_1")).toBe(false);
   });
 

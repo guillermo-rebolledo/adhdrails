@@ -157,9 +157,13 @@ export function createCalendarService(deps: CalendarServiceDependencies) {
     },
 
     /**
-     * Disconnects Calendar: best-effort revoke of the Google grant, then delete
-     * the local connection and calendar snapshot. Local Events and the account
-     * itself are left untouched, and nothing is exported.
+     * Disconnects Calendar (MEM-48): stop each open Google watch channel, revoke
+     * the grant, then delete the local connection, its calendar snapshot, and any
+     * queued Calendar jobs. Every Google call is best-effort — a dead channel or
+     * an already-revoked grant must never block local teardown — and the account,
+     * its login, and its local Events are left untouched. Watches are stopped
+     * before revoke so the access token is still valid when Google is asked to
+     * close the channels; revoking would otherwise invalidate it.
      */
     async disconnect(userId: string): Promise<DisconnectResult> {
       const connection = await repository.getConnection(userId);
@@ -167,10 +171,29 @@ export function createCalendarService(deps: CalendarServiceDependencies) {
         return { wasConnected: false };
       }
 
+      const refreshToken = cipher.decrypt(connection.encryptedRefreshToken);
+
       try {
-        await adapter.revoke({
-          token: cipher.decrypt(connection.encryptedRefreshToken),
-        });
+        const watched = await repository.listWatchedCalendars(userId);
+        if (watched.length > 0) {
+          const { accessToken } = await adapter.refreshAccessToken({
+            refreshToken,
+          });
+          for (const calendar of watched) {
+            await adapter.stopChannel({
+              accessToken,
+              channelId: calendar.watchChannelId,
+              resourceId: calendar.watchResourceId,
+            });
+          }
+        }
+      } catch {
+        // Stopping watches is best-effort: revoke below invalidates them anyway,
+        // and the local snapshot carrying their bookkeeping is about to be deleted.
+      }
+
+      try {
+        await adapter.revoke({ token: refreshToken });
       } catch {
         // A failed or unnecessary revocation must not block local teardown.
       }
