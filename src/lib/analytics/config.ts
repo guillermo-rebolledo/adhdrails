@@ -9,8 +9,8 @@ export interface AnalyticsConfig {
  * Resolves the browser analytics configuration from public environment. Returns
  * `null` — analytics disabled — whenever the website id is absent, so local and
  * preview environments never report into the production Umami property. The
- * script source is pinned to the US Umami host and is not environment-tunable,
- * so analytics can never be pointed at a non-US region by misconfiguration.
+ * script source is pinned to Umami Cloud and is not environment-tunable. The
+ * website itself is created in Umami's US region.
  */
 export function resolveAnalyticsConfig(
   env: {

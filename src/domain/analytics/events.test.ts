@@ -11,7 +11,7 @@ import {
 describe("analytics events", () => {
   it("hosts analytics in the US region with no session replay concept", () => {
     expect(UMAMI_REGION).toBe("us");
-    expect(UMAMI_ENDPOINT_HOST).toBe("https://us.umami.is");
+    expect(UMAMI_ENDPOINT_HOST).toBe("https://cloud.umami.is");
   });
 
   it("accepts an approved content-free event and returns only allowlisted data", () => {

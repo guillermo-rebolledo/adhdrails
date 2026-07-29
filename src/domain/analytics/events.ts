@@ -11,10 +11,10 @@ import { z } from "zod";
  * no session replay, and Rails pins it to the US region.
  */
 
-/** Umami Cloud region and ingest host. The US region is a launch requirement. */
+/** Umami Cloud region and hosted tracker origin. The US region is selected in Umami. */
 export const UMAMI_REGION = "us" as const;
-export const UMAMI_ENDPOINT_HOST = "https://us.umami.is";
-/** The hosted tracker script served from the same US host. */
+export const UMAMI_ENDPOINT_HOST = "https://cloud.umami.is";
+/** The hosted tracker script from Umami's current Cloud tracking code. */
 export const UMAMI_SCRIPT_SRC = `${UMAMI_ENDPOINT_HOST}/script.js`;
 
 const energyValue = z.enum(["low", "medium", "high", "unset"]);

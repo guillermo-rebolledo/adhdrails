@@ -19,6 +19,8 @@ describe("request security boundary", () => {
     );
     expect(policy).toContain("default-src 'self'");
     expect(policy).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
+    expect(policy).toContain("https://cloud.umami.is");
+    expect(policy).not.toContain("https://us.umami.is");
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).not.toContain("upgrade-insecure-requests");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");

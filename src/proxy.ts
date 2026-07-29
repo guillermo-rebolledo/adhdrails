@@ -29,9 +29,9 @@ function contentSecurityPolicy(nonce: string): string {
     "img-src 'self' blob: data:",
     "font-src 'self'",
     // Umami Cloud (US region) content-free analytics: the tracker script is
-    // nonce-allowed via `strict-dynamic`, and its ingest endpoint is the only
-    // extra connect target. No other analytics origin is permitted.
-    "connect-src 'self' https://*.neon.tech wss://*.neon.tech https://us.umami.is",
+    // nonce-allowed via `strict-dynamic`, and its Cloud ingest endpoint is the
+    // only extra analytics connect target.
+    "connect-src 'self' https://*.neon.tech wss://*.neon.tech https://cloud.umami.is",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "base-uri 'self'",

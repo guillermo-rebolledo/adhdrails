@@ -27,7 +27,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "worktree:create": "bash scripts/create-worktree.sh",
     "release:check": "pnpm verify",
-    "release:staging": "pnpm release:check && vercel env run -e preview --git-branch staging -- tsx scripts/release-staging.ts",
+    "release:staging": "pnpm release:check && vercel env run -e staging -- tsx scripts/release-staging.ts",
     "release:production": "pnpm release:check && vercel env run -e production -- tsx scripts/release-production.ts",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm lighthouse"
   },
