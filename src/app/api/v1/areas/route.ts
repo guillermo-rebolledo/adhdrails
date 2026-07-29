@@ -1,0 +1,74 @@
+import { getDatabase } from "@/server/db/connection";
+import { getAccountSummary } from "@/server/auth/session";
+import { areaCreateFailureResponse, serializeArea } from "@/server/area/http";
+import { createAreaRepository } from "@/server/area/repository";
+import { type AreaService, createAreaService } from "@/server/area/service";
+import { jsonResponse, readJsonPayload } from "@/server/http/json";
+import { unauthorizedProblem } from "@/server/http/problem";
+import { correlationIdFrom } from "@/server/observability/correlation-id";
+import { logOperationalEvent } from "@/server/observability/logger";
+
+export interface AreasRouteDependencies {
+  getAccountSummary: (headers: Headers) => Promise<{ userId: string } | null>;
+  getService: () => AreaService;
+  createCorrelationId: (request: Request) => string;
+}
+
+const dependencies: AreasRouteDependencies = {
+  getAccountSummary,
+  getService: () => createAreaService(createAreaRepository(getDatabase())),
+  createCorrelationId: correlationIdFrom,
+};
+
+export function createAreasRouteHandlers(deps: AreasRouteDependencies) {
+  async function GET(request: Request): Promise<Response> {
+    const correlationId = deps.createCorrelationId(request);
+    const account = await deps.getAccountSummary(request.headers);
+
+    if (!account) {
+      return unauthorizedProblem(correlationId);
+    }
+
+    const items = await deps.getService().listForAccount(account.userId);
+
+    return jsonResponse({ items: items.map(serializeArea) }, correlationId);
+  }
+
+  async function POST(request: Request): Promise<Response> {
+    const correlationId = deps.createCorrelationId(request);
+    const account = await deps.getAccountSummary(request.headers);
+
+    if (!account) {
+      return unauthorizedProblem(correlationId);
+    }
+
+    const result = await deps
+      .getService()
+      .create(account.userId, await readJsonPayload(request));
+
+    if (!result.ok) {
+      return areaCreateFailureResponse(result, correlationId);
+    }
+
+    if (result.created) {
+      logOperationalEvent({
+        correlationId,
+        action: "area.created",
+        outcome: "success",
+      });
+    }
+
+    return jsonResponse(
+      serializeArea(result.item),
+      correlationId,
+      result.created ? 201 : 200,
+    );
+  }
+
+  return { GET, POST };
+}
+
+const handlers = createAreasRouteHandlers(dependencies);
+
+export const GET = handlers.GET;
+export const POST = handlers.POST;

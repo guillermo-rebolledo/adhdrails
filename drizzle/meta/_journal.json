@@ -8,6 +8,125 @@
       "when": 1785113178200,
       "tag": "0000_first_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785120950535,
+      "tag": "0001_classy_living_mummy",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785125333726,
+      "tag": "0002_sweet_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785130124484,
+      "tag": "0003_wakeful_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785131419707,
+      "tag": "0004_kind_luminals",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785134377335,
+      "tag": "0005_jazzy_exodus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785182117099,
+      "tag": "0006_powerful_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785184624546,
+      "tag": "0007_bent_lady_mastermind",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785187983476,
+      "tag": "0008_last_sharon_ventura",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785196308317,
+      "tag": "0009_tranquil_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785205579159,
+      "tag": "0010_rainy_nocturne",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785214827988,
+      "tag": "0011_perpetual_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785220739504,
+      "tag": "0012_small_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785263144848,
+      "tag": "0013_woozy_dazzler",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785269232582,
+      "tag": "0014_icy_giant_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785278742032,
+      "tag": "0015_mixed_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785288542742,
+      "tag": "0016_gorgeous_nemesis",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785291638201,
+      "tag": "0017_abnormal_silver_samurai",
+      "breakpoints": true
     }
   ]
 }

@@ -62,10 +62,44 @@ try {
     ...process.env,
     APP_ENV: "test",
     DATABASE_URL: `postgresql://rails:rails@127.0.0.1:${port}/rails_test`,
+    BETTER_AUTH_URL: "http://127.0.0.1:3100",
+    BETTER_AUTH_SECRET: "rails-test-secret-value-not-for-production",
+    GOOGLE_CLIENT_ID: "rails-test-google-client-id",
+    GOOGLE_CLIENT_SECRET: "rails-test-google-client-secret",
+    // The production `next start` build requires a Calendar token key. A fixed
+    // 32-byte base64 key keeps the encrypted-token round trip deterministic in
+    // e2e, mirroring how the auth secrets above are supplied to the test runtime.
+    CALENDAR_TOKEN_KEY_VERSION: "1",
+    CALENDAR_TOKEN_KEY_V1: "RrVgpBEL9NQ+Tp+tBN+nDqxjIh23DWae9xqqNf1XOwU=",
+    VAPID_SUBJECT: "mailto:test@rails.test",
+    VAPID_PUBLIC_KEY:
+      "BKsk134LdfFHOQuYjKg5_lGJATPHWNPzdmyUzqDw_ETAqO9VPExTRejWsaAgNkXnt2JF4Z4W2JPgAEiNLrAzPjM",
+    VAPID_PRIVATE_KEY: "W63YrjxEip0P-c-HK-bWTQR0-hR5VtiS5nAMub727Jg",
   };
 
   await runCommand("pnpm", ["db:migrate"], environment);
   await runCommand("pnpm", ["db:seed"], environment);
+  await runCommand(
+    "pnpm",
+    [
+      "exec",
+      "vitest",
+      "run",
+      "--no-file-parallelism",
+      "src/server/task/repository.integration.test.ts",
+      "src/server/focus/repository.integration.test.ts",
+      "src/server/calendar/repository.integration.test.ts",
+      "src/server/calendar/sync-job-repository.integration.test.ts",
+      "src/server/event/repository.integration.test.ts",
+      "src/server/event/export-job-repository.integration.test.ts",
+      "src/server/notification/repository.integration.test.ts",
+      "src/server/search/repository.integration.test.ts",
+      "src/server/account/data-export-repository.integration.test.ts",
+      "src/server/account/deletion-repository.integration.test.ts",
+      "src/server/observability/audit.integration.test.ts",
+    ],
+    environment,
+  );
   await runCommand("pnpm", ["test:e2e"], environment);
 } finally {
   await execFileAsync("docker", ["stop", containerName]).catch(() => undefined);

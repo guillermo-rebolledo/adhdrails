@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { Geist } from "next/font/google";
+import { SerwistProvider } from "@serwist/turbopack/react";
 
-import { AppShell } from "@/components/app-shell";
+import { AnalyticsProvider } from "@/components/analytics/analytics-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -31,17 +32,23 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          disableTransitionOnChange
-          enableSystem
-          nonce={nonce}
+        <SerwistProvider
+          cacheOnNavigation={false}
+          reloadOnOnline={false}
+          swUrl="/serwist/sw.js"
         >
-          <TooltipProvider>
-            <AppShell>{children}</AppShell>
-          </TooltipProvider>
-        </ThemeProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            disableTransitionOnChange
+            enableSystem
+            nonce={nonce}
+          >
+            <AnalyticsProvider nonce={nonce}>
+              <TooltipProvider>{children}</TooltipProvider>
+            </AnalyticsProvider>
+          </ThemeProvider>
+        </SerwistProvider>
       </body>
     </html>
   );

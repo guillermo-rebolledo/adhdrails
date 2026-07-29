@@ -1,19 +1,12 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  CalendarDaysIcon,
-  CheckSquareIcon,
-  CircleIcon,
-  InboxIcon,
-  LightbulbIcon,
-  MenuIcon,
-  SearchIcon,
-  SettingsIcon,
-  SunMediumIcon,
-} from "lucide-react";
+import { CircleIcon, MenuIcon } from "lucide-react";
 
+import { CommandMenu } from "@/components/command-menu";
+import { navigationDestinations } from "@/components/navigation-items";
+import { InboxBadge } from "@/components/inbox/inbox-badge";
 import { ThemeMenu } from "@/components/theme-menu";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -41,22 +34,6 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
-interface NavigationItem {
-  href: string;
-  label: string;
-  icon: ComponentType;
-}
-
-const navigationItems: NavigationItem[] = [
-  { href: "/today", label: "Today", icon: SunMediumIcon },
-  { href: "/inbox", label: "Inbox", icon: InboxIcon },
-  { href: "/tasks", label: "Tasks", icon: CheckSquareIcon },
-  { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
-  { href: "/thoughts", label: "Thoughts", icon: LightbulbIcon },
-  { href: "/search", label: "Search", icon: SearchIcon },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
-];
-
 function DesktopNavigation() {
   return (
     <Sidebar collapsible="icon">
@@ -74,7 +51,7 @@ function DesktopNavigation() {
           <SidebarGroupContent>
             <nav aria-label="Primary">
               <SidebarMenu>
-                {navigationItems.map(({ href, label, icon: Icon }) => (
+                {navigationDestinations.map(({ href, label, icon: Icon }) => (
                   <SidebarMenuItem key={href}>
                     <SidebarMenuButton
                       render={<Link href={href} />}
@@ -82,6 +59,7 @@ function DesktopNavigation() {
                     >
                       <Icon />
                       <span>{label}</span>
+                      {href === "/inbox" ? <InboxBadge /> : null}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -121,7 +99,7 @@ function MobileNavigation() {
           <DrawerDescription>Move to another part of Rails.</DrawerDescription>
         </DrawerHeader>
         <nav aria-label="Mobile" className="flex flex-1 flex-col gap-1 p-4">
-          {navigationItems.map(({ href, label, icon: Icon }) => (
+          {navigationDestinations.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               className={cn(
@@ -132,6 +110,7 @@ function MobileNavigation() {
             >
               <Icon data-icon="inline-start" />
               {label}
+              {href === "/inbox" ? <InboxBadge /> : null}
             </Link>
           ))}
         </nav>
@@ -152,7 +131,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
           <MobileNavigation />
           <span className="font-semibold md:hidden">Rails</span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <CommandMenu />
             <ThemeMenu />
           </div>
         </header>

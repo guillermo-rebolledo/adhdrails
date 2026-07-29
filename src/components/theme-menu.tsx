@@ -3,6 +3,7 @@
 import { CheckIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
+import { useAnalytics } from "@/components/analytics/analytics-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,6 +23,14 @@ const themes = [
 
 export function ThemeMenu() {
   const { theme = "system", setTheme } = useTheme();
+  const analytics = useAnalytics();
+
+  function chooseTheme(value: string) {
+    setTheme(value);
+    if (value === "light" || value === "dark" || value === "system") {
+      analytics.track({ name: "theme_changed", theme: value });
+    }
+  }
 
   return (
     <DropdownMenu>
@@ -39,7 +48,7 @@ export function ThemeMenu() {
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+          <DropdownMenuRadioGroup value={theme} onValueChange={chooseTheme}>
             {themes.map(({ value, label, icon: Icon }) => (
               <DropdownMenuRadioItem key={value} value={value}>
                 <Icon />

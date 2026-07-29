@@ -1,0 +1,292 @@
+import Dexie, { type Table } from "dexie";
+
+import type { EventOrigin, EventStatus } from "@/domain/event/event";
+import type { FocusSessionStatus } from "@/domain/focus/session";
+import type { TaskEnergy, TaskStatus } from "@/domain/task/task";
+
+/**
+ * Dexie/IndexedDB owns the durable local replica for offline-capable domain
+ * entities and the mutation outbox. `useLiveQuery` exposes optimistic changes
+ * to React immediately, and a single command layer atomically updates an
+ * entity together with its outbox record. TanStack Query must never
+ * independently own the state of an entity that lives here.
+ */
+
+export type SyncState = "pending" | "synced" | "failed" | "conflict";
+
+/**
+ * An Inbox Item as the client holds it, including its local sync status. `seen`
+ * drives the numberless unseen badge (false means unseen). `classifiedAt` marks
+ * an item converted into a Task, Event, or Thought; it stays in the replica so a
+ * failed destination write leaves the source recoverable. `deletedAt` marks an
+ * optimistic app-owned deletion during its 10-second Undo window.
+ */
+export interface LocalInboxItem {
+  id: string;
+  title: string;
+  seen: boolean;
+  version: number;
+  createdAt: string;
+  syncState: SyncState;
+  classifiedAt?: string;
+  deletedAt?: string | null;
+}
+
+/**
+ * A Task as the client holds it. `version` tracks the last server-confirmed
+ * version so an update can carry a correct base version. `deletedAt` marks an
+ * optimistic deletion during its 10-second Undo window; the row is only removed
+ * from the replica once the deletion finalizes and its outbox entry is queued.
+ * Planning metadata is all optional: a `scheduledDate` with no `scheduledTime`
+ * is a date-only Task, `energy` unset means Any, `important` is a plain Boolean,
+ * and `areaId` references at most one local Area.
+ */
+export interface LocalTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  scheduledDate: string | null;
+  scheduledTime: string | null;
+  estimateMinutes: number | null;
+  energy: TaskEnergy | null;
+  important: boolean;
+  notes: string;
+  areaId: string | null;
+  completedAt: string | null;
+  version: number;
+  createdAt: string;
+  deletedAt: string | null;
+  syncState: SyncState;
+}
+
+/**
+ * An Area as the client holds it. Areas are created on entry from the Task form's
+ * combobox and reused by name locally, so the client id is the server id and no
+ * temporary-ID remapping is ever needed. Areas have no delete path in the MVP.
+ */
+export interface LocalArea {
+  id: string;
+  name: string;
+  version: number;
+  createdAt: string;
+  syncState: SyncState;
+}
+
+/**
+ * An Event as the client holds it. Start and end are exact instants with their
+ * IANA time zones, mirroring Google-compatible semantics; `isAllDay`,
+ * recurrence identity, and `status` are carried so an imported Event and a local
+ * Event share one shape even though local creation is timed-only. `origin`
+ * distinguishes a synchronized Google Event from a local one, and together with
+ * `syncState` drives the agenda's stale/pending/synchronized cues. `deletedAt`
+ * marks an optimistic deletion during its 10-second Undo window.
+ */
+export interface LocalEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  startTimeZone: string;
+  endTimeZone: string;
+  isAllDay: boolean;
+  recurringEventId: string | null;
+  status: EventStatus;
+  origin: EventOrigin;
+  version: number;
+  createdAt: string;
+  deletedAt: string | null;
+  syncState: SyncState;
+}
+
+/**
+ * The account's Focus Session as the client holds it. Exactly one is active
+ * (running or paused) at a time; completion is terminal. The client owns the
+ * count-up clock — elapsed time is `accumulatedSeconds` plus, while running, the
+ * live delta since `lastResumedAt` — so a focus action is acknowledged locally
+ * within the performance budget and the timer survives navigation and reopening.
+ * `version` tracks the last server-confirmed version so a transition can carry a
+ * correct base version; `syncState` surfaces a conflict when another device won.
+ */
+export interface LocalFocusSession {
+  id: string;
+  taskId: string;
+  status: FocusSessionStatus;
+  accumulatedSeconds: number;
+  lastResumedAt: string | null;
+  distractionCount: number;
+  startedAt: string;
+  completedAt: string | null;
+  version: number;
+  createdAt: string;
+  syncState: SyncState;
+}
+
+export interface LocalThought {
+  id: string;
+  title: string;
+  body: string;
+  sourceInboxItemId: string | null;
+  version: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  syncState: SyncState;
+}
+
+/** Which durable entity a table (and its outbox entries) belongs to. */
+export type SyncEntity =
+  | "inbox_item"
+  | "task"
+  | "thought"
+  | "event"
+  | "area"
+  | "focus_session";
+
+export type OutboxOperation = "create" | "update" | "delete";
+export type OutboxStatus = "pending" | "failed";
+
+/**
+ * One durable, replayable mutation. It carries the idempotency key and base
+ * version that make server retries safe: the same entry can be delivered any
+ * number of times without creating duplicates or clobbering newer data.
+ */
+export interface OutboxEntry {
+  id: string;
+  entity: SyncEntity;
+  operation: OutboxOperation;
+  entityId: string;
+  idempotencyKey: string;
+  baseVersion: number | null;
+  payload: Record<string, unknown>;
+  status: OutboxStatus;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  sequence?: number;
+}
+
+export class RailsDatabase extends Dexie {
+  inboxItems!: Table<LocalInboxItem, string>;
+  tasks!: Table<LocalTask, string>;
+  thoughts!: Table<LocalThought, string>;
+  events!: Table<LocalEvent, string>;
+  areas!: Table<LocalArea, string>;
+  focusSessions!: Table<LocalFocusSession, string>;
+  outbox!: Table<OutboxEntry, string>;
+
+  constructor(name = "rails") {
+    super(name);
+    this.version(1).stores({
+      inboxItems: "id, createdAt, syncState",
+      outbox: "id, entity, status, createdAt",
+    });
+    this.version(2).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      outbox: "id, entity, status, createdAt",
+    });
+    this.version(3).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // `startAt` is indexed so the weekly agenda can range-scan the current week
+    // directly; `deletedAt` supports the optimistic-deletion Undo window.
+    this.version(4).stores({
+      inboxItems: "id, createdAt, syncState",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Inbox Items gain `deletedAt` as an index for the deletion Undo window.
+    // `seen` is a boolean, which IndexedDB cannot use as a key, so the unseen
+    // badge filters it in memory over the (small) unclassified set instead.
+    this.version(5).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Areas join the replica so the Task form's combobox can list and reuse them
+    // offline. They are indexed by `name` for the combobox's alphabetical list.
+    this.version(6).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks: "id, status, createdAt, deletedAt, syncState",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Compound ordering supports deterministic, bounded offline collection
+    // windows without loading an account's entire Task inventory into memory.
+    this.version(7).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks:
+        "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+    // Planning fields joined LocalTask in version 6, but declaring the store
+    // schema did not add properties to Task objects already persisted by older
+    // clients. Normalize those records before consumers read them; otherwise
+    // strict null checks can mistake `undefined` for a timed schedule.
+    this.version(8)
+      .stores({
+        inboxItems: "id, createdAt, syncState, deletedAt",
+        tasks:
+          "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+        thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+        events: "id, startAt, deletedAt, syncState",
+        areas: "id, name, syncState",
+        outbox: "id, entity, status, sequence, createdAt",
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table<LocalTask, string>("tasks")
+          .toCollection()
+          .modify((task) => {
+            task.scheduledDate ??= null;
+            task.scheduledTime ??= null;
+            task.estimateMinutes ??= null;
+            task.energy ??= null;
+            task.important ??= false;
+            task.notes ??= "";
+            task.areaId ??= null;
+          });
+      });
+    // The account's single Focus Session joins the replica so start/pause/
+    // resume/complete work offline and the count-up timer survives reopening.
+    // `status` is indexed so the one active (running or paused) session is found
+    // without scanning completed history.
+    this.version(9).stores({
+      inboxItems: "id, createdAt, syncState, deletedAt",
+      tasks:
+        "id, status, createdAt, deletedAt, syncState, [status+createdAt+id]",
+      thoughts: "id, createdAt, updatedAt, deletedAt, syncState",
+      events: "id, startAt, deletedAt, syncState",
+      areas: "id, name, syncState",
+      focusSessions: "id, status, syncState",
+      outbox: "id, entity, status, sequence, createdAt",
+    });
+  }
+}
+
+const databases = new Map<string, RailsDatabase>();
+
+/**
+ * The process-wide client database. Only constructed in the browser, where
+ * IndexedDB exists; server and unit-test callers pass their own instance.
+ */
+export function getClientDatabase(accountId: string): RailsDatabase {
+  const name = `rails:${accountId}`;
+  const existing = databases.get(name);
+  if (existing) return existing;
+  const database = new RailsDatabase(name);
+  databases.set(name, database);
+  return database;
+}
