@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
+import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
+
 interface AccountSettingsProps {
   name: string;
   email: string;
@@ -25,7 +27,7 @@ export function AccountSettings({ name, email }: AccountSettingsProps) {
   return (
     <section
       aria-labelledby="account-title"
-      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      className={SETTINGS_SECTION_CLASS_NAME}
       id="account"
     >
       <h2 id="account-title" className="text-lg font-medium">

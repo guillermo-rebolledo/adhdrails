@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +12,10 @@ import {
   type AccountProfileResponse,
   accountProfileSchema,
 } from "@/domain/account/onboarding";
+import type { ProblemDetails } from "@/domain/http/problem";
 import { apiRequest } from "@/lib/api-client";
-import type { ProblemDetails } from "@/server/http/problem";
+
+import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
 
 interface AccountSettingsFormProps {
   initialTimezone: string;
@@ -30,6 +32,7 @@ export function AccountSettingsForm({
     message: string;
   } | null>(null);
   const {
+    control,
     formState: { errors, isSubmitting },
     handleSubmit,
     register,
@@ -41,6 +44,14 @@ export function AccountSettingsForm({
     },
     resolver: zodResolver(accountProfileSchema),
   });
+  const previewInput = accountProfileSchema.safeParse(useWatch({ control }));
+  const formattingPreview = previewInput.success
+    ? new Intl.DateTimeFormat(previewInput.data.locale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: previewInput.data.timezone,
+      }).format(new Date("2026-07-20T13:00:00.000Z"))
+    : null;
 
   const save = handleSubmit(
     async (values) => {
@@ -90,7 +101,7 @@ export function AccountSettingsForm({
   return (
     <section
       aria-labelledby="timezone-title"
-      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      className={SETTINGS_SECTION_CLASS_NAME}
       id="timezone"
     >
       <h2 id="timezone-title" className="text-lg font-medium">
@@ -143,6 +154,15 @@ export function AccountSettingsForm({
             </span>
           )}
         </label>
+
+        {formattingPreview ? (
+          <p className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Formatting preview: </span>
+            <output data-testid="formatting-preview">
+              {formattingPreview}
+            </output>
+          </p>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <Button disabled={isSubmitting} type="submit">

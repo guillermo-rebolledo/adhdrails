@@ -8,7 +8,11 @@ import {
   type SelectedCalendar,
   isWritableRole,
 } from "@/domain/calendar/connection";
+import { problemDetail } from "@/domain/http/problem";
+import { apiRequest } from "@/lib/api-client";
 import { Button, buttonVariants } from "@/components/ui/button";
+
+import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
 
 interface CalendarSettingsProps {
   connection: ConnectionResponse | null;
@@ -44,7 +48,7 @@ export function CalendarSettings({
   return (
     <section
       aria-labelledby="calendar-settings-title"
-      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      className={SETTINGS_SECTION_CLASS_NAME}
       id="calendars"
     >
       <h2 id="calendar-settings-title" className="text-lg font-medium">
@@ -103,6 +107,7 @@ function ConnectedCalendar({
   >("idle");
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const writableId =
     calendars.find((c) => c.isWritable)?.googleCalendarId ?? NONE_WRITABLE;
@@ -126,51 +131,96 @@ function ConnectedCalendar({
 
   async function saveSelection() {
     setSave("saving");
-    const response = await fetch("/api/v1/calendar/selection", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        selections: calendars.map((c) => ({
-          googleCalendarId: c.googleCalendarId,
-          isVisible: c.isVisible,
-          isWritable: c.isWritable,
-        })),
-      }),
-    });
+    try {
+      const response = await apiRequest<unknown>("/api/v1/calendar/selection", {
+        method: "PUT",
+        body: JSON.stringify({
+          selections: calendars.map((c) => ({
+            googleCalendarId: c.googleCalendarId,
+            isVisible: c.isVisible,
+            isWritable: c.isWritable,
+          })),
+        }),
+      });
 
-    if (response.ok) {
-      setSave("saved");
-      router.refresh();
-      return;
+      if (response.ok) {
+        setSave("saved");
+        router.refresh();
+        return;
+      }
+
+      setSave({
+        error: problemDetail(
+          response.body,
+          "We couldn't save your calendar selection. Please try again.",
+        ),
+      });
+    } catch {
+      setSave({
+        error:
+          "We couldn't save while offline. Your calendar choices are still here.",
+      });
     }
-
-    setSave({
-      error:
-        response.status === 422
-          ? "That calendar selection isn't allowed. A read-only calendar can't receive new events."
-          : "We couldn't save your calendar selection. Please try again.",
-    });
   }
 
   async function adoptPrimaryTimezone() {
     if (!connection.primaryTimeZone) {
       return;
     }
-    await fetch("/api/v1/account", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        timezone: connection.primaryTimeZone,
-        locale: accountLocale,
-      }),
-    });
-    router.refresh();
+    setBusy(true);
+    setActionError(null);
+    try {
+      const response = await apiRequest<unknown>("/api/v1/account", {
+        method: "PATCH",
+        body: JSON.stringify({
+          timezone: connection.primaryTimeZone,
+          locale: accountLocale,
+        }),
+      });
+      if (!response.ok) {
+        setActionError(
+          problemDetail(
+            response.body,
+            "We couldn't update your timezone. Please try again.",
+          ),
+        );
+        return;
+      }
+      router.refresh();
+    } catch {
+      setActionError(
+        "We couldn't update your timezone while offline. Please try again when connected.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function disconnect() {
     setBusy(true);
-    await fetch("/api/v1/calendar/connection", { method: "DELETE" });
-    router.refresh();
+    setActionError(null);
+    try {
+      const response = await apiRequest<unknown>(
+        "/api/v1/calendar/connection",
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        setActionError(
+          problemDetail(
+            response.body,
+            "We couldn't disconnect Google Calendar. Please try again.",
+          ),
+        );
+        return;
+      }
+      router.refresh();
+    } catch {
+      setActionError(
+        "We couldn't disconnect while offline. Please try again when connected.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   const offerTimezone =
@@ -206,7 +256,12 @@ function ConnectedCalendar({
             </span>
             . Use it as your Rails time zone?
           </p>
-          <Button onClick={adoptPrimaryTimezone} size="sm" type="button">
+          <Button
+            disabled={busy}
+            onClick={adoptPrimaryTimezone}
+            size="sm"
+            type="button"
+          >
             Use {connection.primaryTimeZone}
           </Button>
         </div>
@@ -294,6 +349,12 @@ function ConnectedCalendar({
       {typeof save === "object" ? (
         <p className="text-sm text-destructive" role="alert">
           {save.error}
+        </p>
+      ) : null}
+
+      {actionError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {actionError}
         </p>
       ) : null}
 

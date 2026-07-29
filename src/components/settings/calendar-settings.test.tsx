@@ -160,6 +160,41 @@ describe("CalendarSettings — connected", () => {
     ).toBe(false);
   });
 
+  it("keeps the local selection and announces a standard save error", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json(
+        {
+          type: "https://rails.app/problems/validation-failed",
+          title: "Invalid request",
+          status: 422,
+          code: "validation_failed",
+          detail: "Choose a writable calendar you can edit.",
+          correlationId: "calendar-test",
+          retryable: false,
+        },
+        { status: 422 },
+      ),
+    );
+    const user = userEvent.setup();
+    render(
+      <CalendarSettings
+        connection={connected()}
+        accountTimezone="America/New_York"
+        accountLocale="en-US"
+      />,
+    );
+
+    const holidays = screen.getByRole("checkbox", { name: /Holidays/i });
+    await user.click(holidays);
+    await user.click(screen.getByRole("button", { name: /save calendars/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose a writable calendar you can edit.",
+    );
+    expect(holidays).not.toBeChecked();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it("offers to adopt the primary calendar timezone when it differs", async () => {
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
     const user = userEvent.setup();
@@ -221,5 +256,43 @@ describe("CalendarSettings — connected", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/v1/calendar/connection");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("does not claim Calendar was disconnected when the server refuses", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json(
+        {
+          type: "https://rails.app/problems/database-unavailable",
+          title: "Temporarily unavailable",
+          status: 503,
+          code: "database_unavailable",
+          detail: "Calendar could not be disconnected. Please try again.",
+          correlationId: "disconnect-test",
+          retryable: true,
+        },
+        { status: 503 },
+      ),
+    );
+    const user = userEvent.setup();
+    render(
+      <CalendarSettings
+        connection={connected()}
+        accountTimezone="America/New_York"
+        accountLocale="en-US"
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /disconnect google calendar/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Disconnect$/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Calendar could not be disconnected. Please try again.",
+    );
+    expect(
+      screen.getByRole("group", { name: "Confirm disconnect" }),
+    ).toBeVisible();
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

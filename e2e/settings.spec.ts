@@ -37,6 +37,7 @@ test("persists appearance choices from Settings", async ({ page }) => {
   await expect(page.getByRole("radio", { name: "System" })).toBeChecked();
   await page.getByRole("radio", { name: "Dark" }).check();
   await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.getByRole("status")).toHaveText("Appearance set to Dark.");
 
   await page.reload();
   await expect(page.getByRole("radio", { name: "Dark" })).toBeChecked();
@@ -72,10 +73,24 @@ test("changes planning locale without rewriting Event instants or timezone meani
   });
   expect(created.status()).toBe(201);
 
-  const updated = await page.request.patch("/api/v1/account", {
-    data: { timezone: "Europe/Madrid", locale: "de-DE" },
-  });
-  expect(updated.status()).toBe(200);
+  await page.goto("/settings");
+  const originalPreview = await page
+    .getByTestId("formatting-preview")
+    .textContent();
+  await page.getByRole("textbox", { name: "Time zone" }).fill("Europe/Madrid");
+  await page
+    .getByRole("textbox", { name: "Date and time format" })
+    .fill("de-DE");
+  await expect(page.getByTestId("formatting-preview")).not.toHaveText(
+    originalPreview ?? "",
+  );
+  await expect(page.getByTestId("formatting-preview")).toContainText("15:00");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Timezone and formatting saved.",
+  );
+
+  const updated = await page.request.get("/api/v1/account");
   await expect(updated.json()).resolves.toMatchObject({
     timezone: "Europe/Madrid",
     locale: "de-DE",

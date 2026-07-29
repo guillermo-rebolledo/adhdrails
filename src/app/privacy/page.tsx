@@ -3,7 +3,6 @@ import { InfoPage } from "@/components/info-page";
 export default function PrivacyPage() {
   return (
     <InfoPage
-      eyebrow="Rails"
       title="Privacy"
       summary="Rails is designed to help you plan without turning personal content into product analytics."
     >

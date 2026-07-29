@@ -9,6 +9,7 @@ import { AccountSettingsForm } from "@/components/settings/account-settings-form
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { CalendarSettings } from "@/components/settings/calendar-settings";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { SETTINGS_SECTION_CLASS_NAME } from "@/components/settings/settings-section";
 import { getAccountSummary } from "@/server/auth/session";
 import { serializeConnection } from "@/server/calendar/http";
 import { getCalendarService } from "@/server/calendar/service-factory";
@@ -24,9 +25,6 @@ const settingsSections = [
   { id: "data-privacy", label: "Data & Privacy" },
   { id: "about-support", label: "About & Support" },
 ] as const;
-
-const sectionClassName =
-  "scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6";
 
 export default async function SettingsPage() {
   const account = await getAccountSummary(await headers());
@@ -97,7 +95,7 @@ export default async function SettingsPage() {
 
           <section
             aria-labelledby="data-privacy-title"
-            className={sectionClassName}
+            className={SETTINGS_SECTION_CLASS_NAME}
             id="data-privacy"
           >
             <h2 id="data-privacy-title" className="text-lg font-medium">
@@ -118,7 +116,7 @@ export default async function SettingsPage() {
 
           <section
             aria-labelledby="about-support-title"
-            className={sectionClassName}
+            className={SETTINGS_SECTION_CLASS_NAME}
             id="about-support"
           >
             <h2 id="about-support-title" className="text-lg font-medium">

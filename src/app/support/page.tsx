@@ -3,7 +3,6 @@ import { InfoPage } from "@/components/info-page";
 export default function SupportPage() {
   return (
     <InfoPage
-      eyebrow="Rails"
       title="Support"
       summary="Tell us what happened and what you expected. You do not need to share the content of a Task, Thought, or Calendar event."
     >

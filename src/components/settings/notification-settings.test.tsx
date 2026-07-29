@@ -110,5 +110,8 @@ describe("NotificationSettings", () => {
     expect(
       await screen.findByText(/couldn't save while offline/i),
     ).toBeVisible();
+    expect(
+      screen.getByRole("checkbox", { name: /in-app event cue/i }),
+    ).toBeChecked();
   });
 });

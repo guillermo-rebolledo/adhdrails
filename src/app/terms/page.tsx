@@ -3,7 +3,6 @@ import { InfoPage } from "@/components/info-page";
 export default function TermsPage() {
   return (
     <InfoPage
-      eyebrow="Rails"
       title="Terms"
       summary="Rails is a calm-focus productivity tool for independent adults."
     >

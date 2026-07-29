@@ -6,6 +6,8 @@ import { useTheme } from "next-themes";
 
 import { cn } from "@/lib/utils";
 
+import { SETTINGS_SECTION_CLASS_NAME } from "./settings-section";
+
 const choices = [
   {
     value: "light",
@@ -39,7 +41,7 @@ export function AppearanceSettings() {
   return (
     <section
       aria-labelledby="appearance-title"
-      className="scroll-mt-6 rounded-xl border bg-card p-5 text-card-foreground sm:p-6"
+      className={SETTINGS_SECTION_CLASS_NAME}
       id="appearance"
     >
       <h2 id="appearance-title" className="text-lg font-medium">
