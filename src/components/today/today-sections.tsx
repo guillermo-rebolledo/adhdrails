@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   CalendarIcon,
@@ -96,14 +96,13 @@ export function AvailableTasks() {
   const [open, setOpen] = useState(false);
   // Once the account has had a Task, keep the section available even if the list
   // empties out — so completing or deleting the last Task still shows its
-  // acknowledgement and Undo instead of the whole section vanishing.
+  // acknowledgement and Undo instead of the whole section vanishing. Adjusting
+  // state during render (React's endorsed alternative to a setState-in-effect
+  // cascade) latches this the moment a count first arrives non-zero.
   const [everHadTasks, setEverHadTasks] = useState(false);
-
-  useEffect(() => {
-    if (typeof count === "number" && count > 0 && !everHadTasks) {
-      setEverHadTasks(true);
-    }
-  }, [count, everHadTasks]);
+  if (typeof count === "number" && count > 0 && !everHadTasks) {
+    setEverHadTasks(true);
+  }
 
   // Still loading the replica — render nothing rather than a flash of the wrong
   // (empty vs. populated) state.

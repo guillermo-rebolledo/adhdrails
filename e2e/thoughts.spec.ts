@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/session";
@@ -53,6 +54,34 @@ test("classifies an Inbox Item as a Thought", async ({ page }) => {
   await expect(
     page.getByRole("link", { name: /a reference from inbox/i }),
   ).toBeVisible();
+});
+
+test("has no automatically detectable WCAG A or AA issues on the Thoughts list and detail", async ({
+  page,
+}) => {
+  await signIn(page, { onboarded: true });
+  await page.goto("/thoughts/new");
+  await page.getByLabel("Title").fill("Accessible reference");
+  await page.getByLabel("Notes").fill("Keep this readable in both themes.");
+  await page.getByRole("button", { name: "Save Thought" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Accessible reference" }),
+  ).toBeVisible();
+
+  const detail = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(detail.violations).toEqual([]);
+
+  await page.goto("/thoughts");
+  await expect(
+    page.getByRole("link", { name: /accessible reference/i }),
+  ).toBeVisible();
+
+  const list = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(list.violations).toEqual([]);
 });
 
 test("creates offline and synchronizes the Thought after reconnect", async ({
