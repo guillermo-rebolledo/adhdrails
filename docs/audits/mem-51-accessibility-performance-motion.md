@@ -13,13 +13,13 @@ of the enforcement already lives in the suite; this pass closed the gaps.
 
 ## How to reproduce the evidence
 
-| Evidence | Command |
-| --- | --- |
-| Full local verification | `pnpm verify` |
-| Cross-browser journeys + axe | `pnpm test:e2e` |
+| Evidence                               | Command           |
+| -------------------------------------- | ----------------- |
+| Full local verification                | `pnpm verify`     |
+| Cross-browser journeys + axe           | `pnpm test:e2e`   |
 | Lighthouse budgets (a11y / perf / CLS) | `pnpm lighthouse` |
-| Bundle analysis | `pnpm analyze` |
-| Domain + component + integration | `pnpm test` |
+| Bundle analysis                        | `pnpm analyze`    |
+| Domain + component + integration       | `pnpm test`       |
 
 ## Cross-browser journeys (AC 1)
 
@@ -95,11 +95,11 @@ overlays. Audited against the eight improve-animations categories.
 Findings and dispositions (all approved fixes are CSS — Motion was not needed;
 it stays reserved for meaningful, interruptible continuity per the spec):
 
-| Severity | Category | Location | Finding | Fix |
-| --- | --- | --- | --- | --- |
-| HIGH | Performance | `ui/button.tsx` | `transition-all` on the most-pressed element animates layout props off the GPU | scoped to `transition` (GPU-safe property set) |
-| MEDIUM | Accessibility | `ui/sheet.tsx`, `ui/drawer.tsx`, `ui/tooltip.tsx`, `ui/dropdown-menu.tsx`, `ui/combobox.tsx` | slide/zoom/translate with no reduced-motion guard | global spatial-token neutralization + `motion-reduce` guards |
-| LOW | Performance | `ui/sidebar.tsx` | `transition-all ease-linear` rail animated `left/right` insets | scoped to `transition-colors` |
+| Severity | Category      | Location                                                                                     | Finding                                                                        | Fix                                                          |
+| -------- | ------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| HIGH     | Performance   | `ui/button.tsx`                                                                              | `transition-all` on the most-pressed element animates layout props off the GPU | scoped to `transition` (GPU-safe property set)               |
+| MEDIUM   | Accessibility | `ui/sheet.tsx`, `ui/drawer.tsx`, `ui/tooltip.tsx`, `ui/dropdown-menu.tsx`, `ui/combobox.tsx` | slide/zoom/translate with no reduced-motion guard                              | global spatial-token neutralization + `motion-reduce` guards |
+| LOW      | Performance   | `ui/sidebar.tsx`                                                                             | `transition-all ease-linear` rail animated `left/right` insets                 | scoped to `transition-colors`                                |
 
 Already correct — no findings: command-menu and focus-session are reduced-motion
 aware; Base UI popovers scale from their trigger via `--transform-origin`;
