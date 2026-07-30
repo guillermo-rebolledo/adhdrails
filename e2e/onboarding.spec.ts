@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/session";
@@ -97,4 +98,18 @@ test("onboarding is operable with the keyboard", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Google Calendar is optional" }),
   ).toBeVisible();
+});
+
+test("has no automatically detectable WCAG A or AA issues during onboarding", async ({
+  page,
+}) => {
+  await signIn(page, { onboarded: false });
+  await page.goto("/onboarding");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
+
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+
+  expect(results.violations).toEqual([]);
 });

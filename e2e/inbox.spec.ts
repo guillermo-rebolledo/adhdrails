@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/session";
@@ -216,6 +217,24 @@ test.describe("inbox processing on a narrow mobile viewport", () => {
 
     await expect(row).toHaveCount(0);
   });
+});
+
+test("has no automatically detectable WCAG A or AA issues while processing items", async ({
+  page,
+}) => {
+  await signIn(page, { onboarded: true });
+  await capture(page, "Review the audit findings");
+
+  await page.goto("/inbox");
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Review the audit findings" }),
+  ).toBeVisible();
+
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+
+  expect(results.violations).toEqual([]);
 });
 
 test("rejects unauthenticated inbox-item update and deletion", async ({
