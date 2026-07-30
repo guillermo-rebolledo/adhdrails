@@ -197,11 +197,13 @@ export function TaskItems({
         <ul aria-label="Available tasks" className="flex flex-col gap-2">
           {tasks.map((task) => (
             <li
-              className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3 text-card-foreground"
+              className="flex flex-col gap-2 rounded-lg border bg-card p-3 text-card-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3"
               key={task.id}
             >
-              <span className="min-w-0 truncate">{task.title}</span>
-              <div className="flex shrink-0 items-center gap-1">
+              <span className="min-w-0 break-words sm:truncate">
+                {task.title}
+              </span>
+              <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
                 {task.status === "active" ? (
                   <Button
                     onClick={() => onComplete(task)}

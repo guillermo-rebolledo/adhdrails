@@ -33,8 +33,10 @@ test.describe("task UI journeys", () => {
       .fill("Write the release notes");
     await page.getByRole("button", { name: "Create task" }).click();
 
-    // Lands back on Today with the task visible in Available tasks.
+    // Lands back on Today; the manage-list is collapsed by default, so open it
+    // to confirm the new task is waiting there.
     await expect(page).toHaveURL(/\/today$/);
+    await page.getByRole("button", { name: /Available tasks/ }).click();
     await expect(
       page.getByRole("listitem").filter({ hasText: "Write the release notes" }),
     ).toBeVisible();
@@ -121,6 +123,7 @@ test.describe("task UI journeys", () => {
       .fill("Finish slides");
     await page.getByRole("button", { name: "Create task" }).click();
 
+    await page.getByRole("button", { name: /Available tasks/ }).click();
     const row = page.getByRole("listitem").filter({ hasText: "Finish slides" });
     await row.getByRole("button", { name: "Complete" }).click();
 
@@ -143,6 +146,7 @@ test.describe("task UI journeys", () => {
     await page.getByRole("textbox", { name: "Task title" }).fill("Old title");
     await page.getByRole("button", { name: "Create task" }).click();
 
+    await page.getByRole("button", { name: /Available tasks/ }).click();
     const row = page.getByRole("listitem").filter({ hasText: "Old title" });
     await row.getByRole("link", { name: "Edit" }).click();
 
@@ -152,6 +156,7 @@ test.describe("task UI journeys", () => {
     await page.getByRole("button", { name: "Save changes" }).click();
 
     await expect(page).toHaveURL(/\/today$/);
+    await page.getByRole("button", { name: /Available tasks/ }).click();
     await expect(
       page.getByRole("listitem").filter({ hasText: "New title" }),
     ).toBeVisible();
@@ -173,6 +178,7 @@ test.describe("task UI journeys", () => {
     await page.getByRole("textbox", { name: "Task title" }).fill("Delete me");
     await page.getByRole("button", { name: "Create task" }).click();
 
+    await page.getByRole("button", { name: /Available tasks/ }).click();
     const row = page.getByRole("listitem").filter({ hasText: "Delete me" });
     // Derive the id from the row's Edit link so the assertion never races sync.
     const editHref = await row
