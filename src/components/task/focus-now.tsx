@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import { useAnalytics } from "@/components/analytics/analytics-provider";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { addMinutesToInstant } from "@/domain/calendar/agenda";
 import { formatTime } from "@/domain/calendar/format";
 import { type NextItems, orderNextItems } from "@/domain/focus/next-items";
@@ -187,11 +188,7 @@ export function FocusNow({
 
   // Still loading the local replica — render nothing rather than a flash.
   if (tasks === undefined) {
-    return (
-      <section aria-label="Focus now" className="flex flex-col gap-4">
-        <EnergyRightNow energy={energy} onChange={setEnergy} />
-      </section>
-    );
+    return null;
   }
 
   const ordered = orderedCandidates(recommendation);
@@ -206,6 +203,11 @@ export function FocusNow({
     : [];
 
   const isFlexible = displayed !== null && displayed.scheduledTime === null;
+
+  // Energy only shapes an actual focus decision, so it stays with one — never on
+  // an empty account where it would ask for a choice with nothing to reorder.
+  const showEnergy =
+    displayed !== null || activeSession !== null || completion !== null;
 
   async function onDefer(option: DeferOption) {
     if (!displayed) {
@@ -316,7 +318,9 @@ export function FocusNow({
 
   return (
     <section aria-label="Focus now" className="flex flex-col gap-4">
-      <EnergyRightNow energy={energy} onChange={setEnergy} />
+      {showEnergy ? (
+        <EnergyRightNow energy={energy} onChange={setEnergy} />
+      ) : null}
 
       <div aria-live="polite">
         {notice ? (
@@ -392,11 +396,17 @@ export function FocusNow({
           timeZone={timeZone}
         />
       ) : displayed === null ? (
-        <div className="rounded-xl border bg-card p-6 text-card-foreground">
+        <div className="flex flex-col items-start gap-4 rounded-xl border bg-card p-6 text-card-foreground">
           <p className="text-muted-foreground">
-            Nothing to focus on right now. Capture a thought or add a task when
-            you’re ready — there’s no rush.
+            Nothing to focus on right now. Capture a thought above or add a task
+            when you’re ready — there’s no rush.
           </p>
+          <Link
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            href="/tasks/new"
+          >
+            New task
+          </Link>
         </div>
       ) : (
         <div className="rounded-xl border bg-card p-6 text-card-foreground">
