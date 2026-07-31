@@ -169,7 +169,7 @@ export function TaskItems({
       <div aria-live="polite" className="flex flex-col gap-2">
         {completed ? (
           <div
-            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm"
+            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm animate-in fade-in-0 duration-150 ease-out"
             role="status"
           >
             <span>{TASK_COMPLETED_MESSAGE}</span>
@@ -180,7 +180,7 @@ export function TaskItems({
         ) : null}
         {pendingDelete ? (
           <div
-            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm"
+            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm animate-in fade-in-0 duration-150 ease-out"
             role="status"
           >
             <span>Task deleted.</span>
