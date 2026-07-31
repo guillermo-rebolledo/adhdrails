@@ -138,14 +138,13 @@ export function CommandMenu() {
         </kbd>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-background/80 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs motion-reduce:transition-none" />
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-background/80 supports-backdrop-filter:backdrop-blur-xs" />
         <Dialog.Popup
           className={cn(
             // Full-screen on mobile so the palette is usable by touch alone;
             // a centered card on larger screens.
             "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col bg-popover text-popover-foreground outline-none",
             "sm:top-[12vh] sm:left-1/2 sm:h-auto sm:max-h-[70vh] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:rounded-xl sm:border sm:shadow-lg",
-            "transition duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none sm:data-ending-style:scale-[0.98] sm:data-starting-style:scale-[0.98]",
           )}
         >
           <Dialog.Title className="sr-only">Command menu</Dialog.Title>
