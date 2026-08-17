@@ -308,6 +308,39 @@ mismatched `APP_ENV`, a missing variable, insufficient retention, or a failed
 restore point stops the release before it touches anything. Read the first
 failing line and fix that.
 
+### Where a release reads its variables from
+
+By default the scripts load the target's variables with `vercel env pull`. That
+works only for variables Vercel can hand back.
+
+**A variable stored as _Sensitive_ cannot be read back.** Vercel decrypts those
+only into the deployment runtime and `vercel env pull` writes the literal string
+`[SENSITIVE]` in place of the value. A release cannot verify an environment it
+cannot read, so if any pulled variable comes back as a placeholder the script
+stops and names the offending variables.
+
+If this project's variables are Sensitive (check Vercel → Settings →
+Environment Variables), keep a local file per target instead:
+
+```
+.env.production.local
+.env.staging.local
+```
+
+When the file exists the release reads it **in preference to** `vercel env
+pull`. Both files match the `.env*` rule in `.gitignore`, so neither is ever
+committed — treat them as secrets on disk and keep them off shared machines.
+
+The file is only a source of values, not a bypass: its contents still have to
+satisfy every guard in §4, so a file holding the wrong tier's configuration is
+rejected exactly like a mispulled environment (`APP_ENV` must match the target,
+hosts must agree, required variables must be present).
+
+> Recreating a Sensitive variable to make it readable is **not** a safe
+> shortcut. `CALENDAR_TOKEN_KEY_V1` encrypts stored Google refresh tokens — if
+> you replace it with a new value rather than the original, every connected
+> calendar becomes undecryptable. See the rotation note in §4.
+
 ### Release rehearsal & restore drill (before launch)
 
 - [ ] **Rehearsal — production readiness:**

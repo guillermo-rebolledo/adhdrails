@@ -7,5 +7,15 @@ export default defineConfig([
   ...nextCoreWebVitals,
   ...nextTypeScript,
   ...tanstackQuery.configs["flat/recommended"],
-  globalIgnores([".next/**", "coverage/**", "drizzle/**"]),
+  // `.claude/**` holds git worktrees — full copies of this repo. Linting them
+  // reports every finding a second time and fails `pnpm verify` (and so any
+  // release) on work-in-progress that lives on another branch entirely.
+  // `.impeccable/**` is local tool state, not source.
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "drizzle/**",
+    ".claude/**",
+    ".impeccable/**",
+  ]),
 ]);
