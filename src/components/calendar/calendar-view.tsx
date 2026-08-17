@@ -6,6 +6,7 @@ import Link from "next/link";
 import { weekBounds, weekDays } from "@/domain/calendar/agenda";
 import { formatDayHeading } from "@/domain/calendar/format";
 import { buttonVariants } from "@/components/ui/button";
+import { useTimeZone } from "@/components/account/time-zone-provider";
 
 import { LaterList } from "./later-list";
 import { WeeklyAgenda } from "./weekly-agenda";
@@ -17,13 +18,10 @@ import { WeeklyAgenda } from "./weekly-agenda";
  * account's time zone and locale, and the whole screen works without Google
  * Calendar access.
  */
-export function CalendarView({
-  timeZone,
-  locale,
-}: {
-  timeZone: string;
-  locale: string;
-}) {
+export function CalendarView() {
+  // Every clock time on this screen — the week bounds, the day headings, and
+  // each Event's range — comes from the app-wide clock.
+  const { timeZone, locale } = useTimeZone();
   const [reference] = useState(() => new Date().toISOString());
   const bounds = weekBounds(reference, timeZone);
   const days = weekDays(reference, timeZone);

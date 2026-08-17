@@ -4,7 +4,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 
 import { CaptureChips } from "@/components/inbox/capture-chips";
 import { Button } from "@/components/ui/button";
-import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
 import { instantFromLocalParts } from "@/domain/calendar/agenda";
 import { type ChipKind, parseCapture } from "@/domain/capture/parser";
 import {
@@ -24,6 +23,7 @@ import {
 import type { LocalInboxItem, SyncState } from "@/offline/db";
 import { useOffline } from "@/offline/provider";
 import { cn } from "@/lib/utils";
+import { useClock } from "@/components/account/time-zone-provider";
 
 const syncStateCopy: Record<SyncState, string> = {
   pending: "Pending sync",
@@ -54,10 +54,9 @@ interface PendingDelete {
  * announced accessibly, not shown visually alone.
  */
 export function InboxList({
-  timeZone = DEFAULT_TIMEZONE,
-  locale = DEFAULT_LOCALE,
   undoWindowMs = UNDO_WINDOW_MS,
   highlightedItemId,
+  ...overrides
 }: {
   timeZone?: string;
   locale?: string;
@@ -66,6 +65,7 @@ export function InboxList({
   /** Search deep-link target to focus and distinguish on arrival. */
   highlightedItemId?: string;
 } = {}) {
+  const { timeZone, locale } = useClock(overrides);
   const { db, sync } = useOffline();
   const [message, setMessage] = useState("");
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
@@ -174,7 +174,7 @@ export function InboxList({
       <div aria-live="polite">
         {pendingDelete ? (
           <div
-            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm animate-in fade-in-0 duration-150 ease-out"
+            className="flex animate-in items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm duration-150 ease-out fade-in-0"
             role="status"
           >
             <span>Inbox item deleted.</span>

@@ -31,7 +31,13 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  timezone: text("timezone").notNull().default("UTC"),
+  // Nullable on purpose: NULL means "this account has never told us where it
+  // is", which is a different fact from "this account is on UTC". A NOT NULL
+  // DEFAULT 'UTC' collapsed the two and silently rendered every commitment at
+  // the wrong hour for anyone who skipped the timezone step. The client
+  // captures the browser's zone into this column the first time it finds it
+  // NULL, so server-side work (reminders, scheduling) converges on the truth too.
+  timezone: text("timezone"),
   locale: text("locale").notNull().default("en-US"),
   onboardingCompletedAt: timestamp("onboarding_completed_at", {
     withTimezone: true,

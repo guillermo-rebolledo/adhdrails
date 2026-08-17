@@ -64,7 +64,8 @@ export type DataExportStatusResponse = z.infer<
 const exportedAccountSchema = z.object({
   name: z.string(),
   email: z.string(),
-  timezone: z.string(),
+  /** `null` when the account's zone was never recorded. */
+  timezone: z.string().nullable(),
   locale: z.string(),
 });
 

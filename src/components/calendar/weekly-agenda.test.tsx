@@ -56,7 +56,7 @@ function renderAgenda() {
 }
 
 describe("WeeklyAgenda", () => {
-  it("renders the same event in both the desktop grid and the mobile list", async () => {
+  it("renders an event once, in a single layout shared by every viewport", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
     // 17:00Z is 13:00 (1:00 PM) local in New York on Wednesday the 22nd.
     await createEvent(db, {
@@ -67,15 +67,41 @@ describe("WeeklyAgenda", () => {
 
     renderAgenda();
 
-    const grid = await screen.findByTestId("agenda-week-grid");
-    const list = await screen.findByTestId("agenda-week-list");
-    // Full desktop/mobile feature parity: the event appears in both layouts.
-    expect(within(grid).getByText("Team sync")).toBeInTheDocument();
-    expect(within(list).getByText("Team sync")).toBeInTheDocument();
+    const week = await screen.findByTestId("agenda-week");
+    // One vertical layout serves desktop and mobile alike, so the event is in
+    // the DOM exactly once — no duplicated copy for a screen reader to repeat.
+    expect(screen.getAllByText("Team sync")).toHaveLength(1);
+    expect(within(week).getByText("Team sync")).toBeInTheDocument();
     // Its local time range is shown, and a freshly created event carries a
     // Pending sync cue until the outbox drains.
-    expect(within(grid).getAllByText(/1:00/).length).toBeGreaterThan(0);
-    expect(within(grid).getAllByText("Pending").length).toBeGreaterThan(0);
+    expect(within(week).getAllByText(/1:00/).length).toBeGreaterThan(0);
+    expect(within(week).getAllByText("Pending").length).toBeGreaterThan(0);
+  });
+
+  it("places each event under its own day", async () => {
+    db = new RailsDatabase(`test-${crypto.randomUUID()}`);
+    await createEvent(db, {
+      title: "Monday kickoff",
+      startAt: "2026-07-20T14:00:00Z",
+      timeZone: NY,
+    });
+    await createEvent(db, {
+      title: "Friday wrap-up",
+      startAt: "2026-07-24T14:00:00Z",
+      timeZone: NY,
+    });
+
+    renderAgenda();
+
+    await screen.findByTestId("agenda-week");
+    const monday = screen.getByRole("heading", { name: "Mon, Jul 20" });
+    const friday = screen.getByRole("heading", { name: "Fri, Jul 24" });
+    expect(
+      within(monday.parentElement!).getByText("Monday kickoff"),
+    ).toBeInTheDocument();
+    expect(
+      within(friday.parentElement!).getByText("Friday wrap-up"),
+    ).toBeInTheDocument();
   });
 
   it("shows a Local cue once an event is synced", async () => {
@@ -89,19 +115,19 @@ describe("WeeklyAgenda", () => {
 
     renderAgenda();
 
-    const grid = await screen.findByTestId("agenda-week-grid");
-    expect(within(grid).getAllByText("Local").length).toBeGreaterThan(0);
+    const week = await screen.findByTestId("agenda-week");
+    expect(within(week).getAllByText("Local").length).toBeGreaterThan(0);
   });
 
-  it("shows seven day columns with calm empty-day copy", async () => {
+  it("shows all seven days with calm empty-day copy", async () => {
     db = new RailsDatabase(`test-${crypto.randomUUID()}`);
     renderAgenda();
 
-    const grid = await screen.findByTestId("agenda-week-grid");
+    const week = await screen.findByTestId("agenda-week");
     // Monday through Sunday headings, e.g. "Mon, Jul 20".
-    expect(within(grid).getByText("Mon, Jul 20")).toBeInTheDocument();
-    expect(within(grid).getByText("Sun, Jul 26")).toBeInTheDocument();
-    expect(within(grid).getAllByText("No events")).toHaveLength(7);
+    expect(within(week).getByText("Mon, Jul 20")).toBeInTheDocument();
+    expect(within(week).getByText("Sun, Jul 26")).toBeInTheDocument();
+    expect(within(week).getAllByText("No events")).toHaveLength(7);
   });
 
   it("imports the Google mirror and shows a last-synced cue for a mirrored event", async () => {
@@ -131,14 +157,14 @@ describe("WeeklyAgenda", () => {
 
     renderAgenda();
 
-    const grid = await screen.findByTestId("agenda-week-grid");
-    expect(within(grid).getByText("Imported meeting")).toBeInTheDocument();
+    const week = await screen.findByTestId("agenda-week");
+    expect(within(week).getByText("Imported meeting")).toBeInTheDocument();
     // The agenda triggers a mirror import and hydrates this week's window.
     expect(syncCalendarMirror).toHaveBeenCalled();
     expect(fetchEventWindow).toHaveBeenCalled();
     expect(await screen.findByText(/Last synced/)).toBeInTheDocument();
     // A mirrored Google event shows the Synced cue, distinct from a local one.
-    expect(within(grid).getAllByText("Synced").length).toBeGreaterThan(0);
+    expect(within(week).getAllByText("Synced").length).toBeGreaterThan(0);
   });
 
   it("hides an event with a pending optimistic deletion", async () => {
@@ -152,8 +178,8 @@ describe("WeeklyAgenda", () => {
 
     renderAgenda();
 
-    // The grid renders (empty), but the deleted event never appears.
-    await screen.findByTestId("agenda-week-grid");
+    // The week renders (empty), but the deleted event never appears.
+    await screen.findByTestId("agenda-week");
     expect(screen.queryByText("Cancelled soon")).not.toBeInTheDocument();
   });
 });
