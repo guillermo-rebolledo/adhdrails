@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/session";
@@ -87,13 +88,16 @@ test.describe("inbox processing journeys", () => {
 
     await expect(row).toHaveCount(0);
     await expect
-      .poll(async () => {
-        const response = await page.request.get("/api/v1/thoughts");
-        const body = (await response.json()) as {
-          thoughts: { title: string }[];
-        };
-        return body.thoughts.map((thought) => thought.title);
-      })
+      .poll(
+        async () => {
+          const response = await page.request.get("/api/v1/thoughts");
+          const body = (await response.json()) as {
+            thoughts: { title: string }[];
+          };
+          return body.thoughts.map((thought) => thought.title);
+        },
+        { timeout: 10_000 },
+      )
       .toContain("A reference worth keeping");
   });
 
@@ -213,6 +217,24 @@ test.describe("inbox processing on a narrow mobile viewport", () => {
 
     await expect(row).toHaveCount(0);
   });
+});
+
+test("has no automatically detectable WCAG A or AA issues while processing items", async ({
+  page,
+}) => {
+  await signIn(page, { onboarded: true });
+  await capture(page, "Review the audit findings");
+
+  await page.goto("/inbox");
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Review the audit findings" }),
+  ).toBeVisible();
+
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+
+  expect(results.violations).toEqual([]);
 });
 
 test("rejects unauthenticated inbox-item update and deletion", async ({

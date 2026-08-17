@@ -13,6 +13,7 @@ import { useAnalytics } from "@/components/analytics/analytics-provider";
 import { Button } from "@/components/ui/button";
 import { type SearchResultType } from "@/domain/search/search";
 import { useContentSearch } from "@/hooks/use-content-search";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { cn } from "@/lib/utils";
 
 const typePresentation = {
@@ -27,6 +28,7 @@ const typePresentation = {
 export function SearchView({ debounceMs = 200 }: { debounceMs?: number }) {
   const router = useRouter();
   const analytics = useAnalytics();
+  const hydrated = useHydrated();
   const listId = useId();
   const optionId = useId();
   const [query, setQuery] = useState("");
@@ -97,6 +99,7 @@ export function SearchView({ debounceMs = 200 }: { debounceMs?: number }) {
           autoComplete="off"
           autoFocus
           className="h-11 w-full rounded-lg border bg-background pr-3 pl-10 text-base transition-shadow outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          disabled={!hydrated}
           onChange={(event) => {
             setQuery(event.target.value);
             setActiveIndex(-1);

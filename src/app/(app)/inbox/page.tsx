@@ -1,15 +1,10 @@
-import { headers } from "next/headers";
-
 import { InboxList } from "@/components/inbox/inbox-list";
-import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
-import { getAccountSummary } from "@/server/auth/session";
 
 export default async function InboxPage({
   searchParams,
 }: {
   searchParams: Promise<{ item?: string }>;
 }) {
-  const account = await getAccountSummary(await headers());
   const { item } = await searchParams;
 
   return (
@@ -21,11 +16,7 @@ export default async function InboxPage({
           overdue, and there is no Inbox Zero to reach.
         </p>
       </div>
-      <InboxList
-        highlightedItemId={item}
-        locale={account?.locale ?? DEFAULT_LOCALE}
-        timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
-      />
+      <InboxList highlightedItemId={item} />
     </section>
   );
 }

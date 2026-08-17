@@ -9,6 +9,7 @@ import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { CalendarSettings } from "@/components/settings/calendar-settings";
 import { DataPrivacySettings } from "@/components/settings/data-privacy-settings";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import { resolveEffectiveTimeZone } from "@/domain/account/onboarding";
 import { SETTINGS_SECTION_CLASS_NAME } from "@/components/settings/settings-section";
 import { getDataExportService } from "@/server/account/service-factory";
 import { getAccountSummary } from "@/server/auth/session";
@@ -80,7 +81,7 @@ export default async function SettingsPage() {
           <Suspense>
             <CalendarSettings
               connection={connection ? serializeConnection(connection) : null}
-              accountTimezone={account.timezone}
+              accountTimezone={resolveEffectiveTimeZone(account.timezone)}
               accountLocale={account.locale}
             />
           </Suspense>
@@ -93,7 +94,7 @@ export default async function SettingsPage() {
           <AppearanceSettings />
 
           <AccountSettingsForm
-            initialTimezone={account.timezone}
+            initialTimezone={resolveEffectiveTimeZone(account.timezone)}
             initialLocale={account.locale}
           />
 

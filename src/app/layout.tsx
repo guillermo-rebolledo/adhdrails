@@ -45,7 +45,9 @@ export default async function RootLayout({
             nonce={nonce}
           >
             <AnalyticsProvider nonce={nonce}>
-              <TooltipProvider>{children}</TooltipProvider>
+              <TooltipProvider delay={600} closeDelay={0} timeout={300}>
+                {children}
+              </TooltipProvider>
             </AnalyticsProvider>
           </ThemeProvider>
         </SerwistProvider>

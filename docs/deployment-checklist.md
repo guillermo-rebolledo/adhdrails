@@ -7,8 +7,8 @@ earlier ones are done.
 **Golden path once everything below is set:**
 
 ```bash
-pnpm release:staging      # verify → migrate (expand) → deploy → repoint staging domain
-pnpm release:production   # same, production; requires typed confirmation
+pnpm release:staging      # verify → verify env → migrate (expand) → deploy (custom env)
+pnpm release:production   # same + typed confirmation, retention check & restore point
 ```
 
 If those two commands run clean and the post-deploy checks pass, you're done.
@@ -18,20 +18,36 @@ Everything else in this file exists to make those two commands work.
 
 ## 0. How the environments are shaped (read once)
 
+Rails uses **four** isolated tiers: local, preview, staging, production.
+
 - **Local** — your machine. Uses dev fallbacks; needs almost no secrets.
-- **Staging** — a **Preview** deployment of the `staging` branch, aliased to the
-  stable domain `adhdrails-staging.vercel.app`. Env vars are scoped
-  **Preview → branch `staging`**.
+- **Preview** — Vercel Preview deployments of feature branches. Scoped to the
+  **Preview** environment. Previews **never** receive production access — the
+  app boot (`src/instrumentation.ts`) fails closed if a preview is ever handed
+  `APP_ENV=production`.
+- **Staging** — a **Vercel custom environment** named `staging` (a Pro feature)
+  with its own variable scope and its own stable domain. It is a first-class
+  environment, not a Preview alias. Deploys with `vercel deploy --target=staging`.
 - **Production** — the Production deployment. Env vars are scoped **Production**.
 
-Staging and production are fully separate: separate OAuth clients, separate Neon
-databases, separate Inngest environments, separate secrets. Nothing is shared.
+All four tiers are fully separate: separate OAuth clients, separate Neon
+databases, separate Inngest environments, separate VAPID keys, separate
+analytics, separate secrets. Nothing is shared. Each deployed tier carries an
+`APP_ENV` marker (`staging` / `production`) that the release scripts verify
+before they touch anything, so a production release can never run against a
+staging (or stale local) configuration.
+
+**Create the `staging` custom environment once:** Vercel → Project → Settings →
+Environments → **Create environment** → name it `staging`. Assign it a stable
+domain (Project → Domains → add `adhdrails-staging.vercel.app` or your own →
+attach to the `staging` environment). After this, staging vars are scoped to the
+**staging** environment (§4).
 
 **One limitation to know now:** Google push notifications (live calendar sync)
-need a domain you can add DNS records to. `adhdrails-staging.vercel.app` is a
-`*.vercel.app` domain you don't control DNS for, so **real push notifications do
-not work on staging** unless you put staging on a custom domain. Everything else
-(sign-in, calendar connect, import, agenda) works on staging as-is. See §7.
+need a domain you can add DNS records to. A `*.vercel.app` domain is one you
+don't control DNS for, so **real push notifications do not work on staging**
+unless you give staging a custom domain you own. Everything else (sign-in,
+calendar connect, import, agenda) works on staging as-is. See §7.
 
 ---
 
@@ -102,7 +118,7 @@ don't configure them here beyond publishing the consent screen.
 ## 4. Environment variables (the core list)
 
 Set these in **Vercel → Project → Settings → Environment Variables**. Scope
-staging vars to **Preview** + branch `staging`; scope production vars to
+staging vars to the **staging** custom environment; scope production vars to
 **Production**.
 
 `<host>` = `adhdrails-staging.vercel.app` for staging, your production domain for
@@ -110,16 +126,30 @@ production.
 
 ### Must set (app will not work without these)
 
-| Variable                     | Value                  | Notes                                   |
-| ---------------------------- | ---------------------- | --------------------------------------- |
-| `DATABASE_URL`               | Neon connection string | **Different DB per environment** (§5)   |
-| `BETTER_AUTH_URL`            | `https://<host>`       | Fixes the "Invalid origin" auth error   |
-| `NEXT_PUBLIC_APP_URL`        | `https://<host>`       | Same value; used by the browser         |
-| `BETTER_AUTH_SECRET`         | from §2                | Different per environment               |
-| `GOOGLE_CLIENT_ID`           | from §3                | Per-environment OAuth client            |
-| `GOOGLE_CLIENT_SECRET`       | from §3                | Per-environment OAuth client            |
-| `CALENDAR_TOKEN_KEY_VERSION` | `1`                    | Bump only when rotating keys            |
-| `CALENDAR_TOKEN_KEY_V1`      | from §2                | 32-byte base64; encrypts refresh tokens |
+| Variable                     | Value                    | Notes                                                    |
+| ---------------------------- | ------------------------ | -------------------------------------------------------- |
+| `APP_ENV`                    | `staging` / `production` | Tier marker the release scripts verify before mutating   |
+| `DATABASE_URL`               | Neon connection string   | **Different DB per environment** (§5)                    |
+| `BETTER_AUTH_URL`            | `https://<host>`         | Fixes the "Invalid origin" auth error                    |
+| `NEXT_PUBLIC_APP_URL`        | `https://<host>`         | Same value; must match `BETTER_AUTH_URL`'s host          |
+| `BETTER_AUTH_SECRET`         | from §2                  | Different per environment                                |
+| `GOOGLE_CLIENT_ID`           | from §3                  | Per-environment OAuth client                             |
+| `GOOGLE_CLIENT_SECRET`       | from §3                  | Per-environment OAuth client                             |
+| `CALENDAR_TOKEN_KEY_VERSION` | `1`                      | Bump only when rotating keys                             |
+| `CALENDAR_TOKEN_KEY_V1`      | from §2                  | 32-byte base64; encrypts refresh tokens                  |
+| `VAPID_SUBJECT`              | `mailto:you@domain`      | Web Push contact; **different key pair per environment** |
+| `VAPID_PUBLIC_KEY`           | VAPID key pair           | `pnpm exec web-push generate-vapid-keys --json`          |
+| `VAPID_PRIVATE_KEY`          | VAPID key pair           | Server-only; never exposed to the browser                |
+
+> The release scripts verify all three VAPID variables are present (isolated Web
+> Push keys per environment). Generate a **separate** key pair for staging and
+> production.
+
+> `APP_ENV` is the authoritative tier signal. `pnpm release:staging` refuses to
+> run unless the pulled environment is `APP_ENV=staging`, and
+> `pnpm release:production` refuses unless it is `APP_ENV=production`. Never set
+> `APP_ENV=production` on any environment other than Production — the app boot
+> rejects a Preview that carries it.
 
 ### Set when using push notifications (live calendar sync)
 
@@ -132,6 +162,18 @@ production.
 | Variable                             | Value   | Notes                                                                                                                                     |
 | ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPERATIONAL_AUDIT_PSEUDONYM_SECRET` | from §2 | **Required in production** — the app throws on boot without it. Different per environment. Never stores raw account ids in audit records. |
+
+### Neon restore points & retention (required for production releases)
+
+`pnpm release:production` verifies point-in-time recovery retention and creates
+a verified restore point before migrating. Set these for the **production**
+environment (they are also read by `pnpm restore:drill` and the rehearsal).
+
+| Variable          | Value                   | Notes                                                      |
+| ----------------- | ----------------------- | ---------------------------------------------------------- |
+| `NEON_API_KEY`    | Neon personal/API key   | Scope to the production project. Never set on Preview.     |
+| `NEON_PROJECT_ID` | Neon project id         | The production project.                                    |
+| `NEON_BRANCH_ID`  | Neon branch id (`br-…`) | The production branch snapshots and restore drills act on. |
 
 ### Analytics (optional — content-free product analytics)
 
@@ -198,7 +240,8 @@ With the Vercel↔Inngest integration installed (§1):
 Environment mapping is automatic:
 
 - Vercel **Production** → Inngest **Production** environment.
-- Vercel **Preview / `staging`** → an Inngest **Branch environment**.
+- Vercel **`staging` custom environment** → its own Inngest environment.
+- Vercel **Preview** → an Inngest **Branch environment**.
 
 > **Throttling:** the provider-facing event functions (`calendar-incremental-sync`,
 > `calendar-event-export`, `account-data-export`) are throttled so a burst cannot
@@ -249,16 +292,40 @@ give it a real domain):
   ```bash
   pnpm release:staging
   ```
-  Runs the full verify suite, migrates (expand), deploys the `staging` branch,
-  and repoints `adhdrails-staging.vercel.app` at it.
+  Runs the full verify suite, pulls and **verifies the staging environment**
+  (`APP_ENV=staging`), migrates (expand), and deploys to the `staging` custom
+  environment (`vercel deploy --target=staging`).
 - [ ] **Production:**
   ```bash
   pnpm release:production
   ```
-  Same, for production. Requires a **typed confirmation** before it proceeds.
+  Runs verify, takes a **typed confirmation**, pulls and **verifies the
+  production environment**, confirms Neon PITR retention (≥ 7 days), creates a
+  verified Neon restore point, migrates (expand), then deploys to production.
 
-If `release:check`/verify fails, the deploy stops before touching anything — read
-the first failing line and fix that.
+Both scripts are fail-fast and never print secrets: a failed verify, a
+mismatched `APP_ENV`, a missing variable, insufficient retention, or a failed
+restore point stops the release before it touches anything. Read the first
+failing line and fix that.
+
+### Release rehearsal & restore drill (before launch)
+
+- [ ] **Rehearsal — production readiness:**
+  ```bash
+  pnpm release:rehearsal
+  ```
+  Exercises the automated safeguards (seed disablement, expand-only migrations,
+  the full verification command, environment documentation, preview isolation,
+  and — when Neon credentials are present — PITR retention) and writes
+  `docs/production-readiness.md` with pass/fail evidence and the remaining human
+  launch dependencies. Exits non-zero if any automated check regressed.
+- [ ] **Restore drill — recovery-time objective:**
+  ```bash
+  pnpm restore:drill
+  ```
+  Runs a real Neon point-in-time restore and reports the recovery time. Record
+  it in `docs/runbooks/restore-drill.md`. The initial RTO is four hours. Run
+  before launch and after meaningful schema changes.
 
 ---
 

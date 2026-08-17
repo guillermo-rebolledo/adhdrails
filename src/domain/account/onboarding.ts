@@ -29,6 +29,38 @@ export function deriveInitialTimeZone(candidate?: string | null): string {
 }
 
 /**
+ * Whether an account has never told Rails where it is. `user.timezone` is
+ * nullable precisely so this question has an answer: `null` is "unknown", not
+ * "UTC". An unknown zone is what the client captures from the browser.
+ */
+export function timeZoneNeedsCapture(
+  accountTimeZone: string | null | undefined,
+): boolean {
+  return !accountTimeZone || !isValidTimeZone(accountTimeZone);
+}
+
+/**
+ * The single rule for which zone a clock time is rendered in, used by every
+ * surface in the app so no two screens can disagree.
+ *
+ * The account's stored zone wins whenever it is known — including a deliberate
+ * `UTC`, which is now distinguishable from "never set". When it is unknown, the
+ * browser's zone is used; the stored instant is authoritative either way, so
+ * only the presentation is at stake. {@link DEFAULT_TIMEZONE} is the last
+ * resort, for the server, where no browser exists to ask.
+ */
+export function resolveEffectiveTimeZone(
+  accountTimeZone: string | null | undefined,
+  detectedTimeZone?: string | null,
+): string {
+  if (accountTimeZone && isValidTimeZone(accountTimeZone)) {
+    return accountTimeZone;
+  }
+
+  return deriveInitialTimeZone(detectedTimeZone);
+}
+
+/**
  * A canonical BCP 47 formatting locale. Interface copy stays English; only the
  * date/number formatting locale is derived here.
  */
@@ -101,8 +133,9 @@ export function resolveAuthenticatedLanding(
 
 /**
  * Shared contract for completing onboarding and for later edits from Settings.
- * A trimmed, validated time zone and locale are always present; both fall back
- * to sensible defaults rather than rejecting the account.
+ * A trimmed, validated time zone and locale are always present: both of these
+ * callers know the values they are setting, so neither may leave the zone
+ * unknown.
  */
 export const accountProfileSchema = z.object({
   timezone: z
@@ -125,7 +158,8 @@ export const accountProfileResponseSchema = z.object({
   userId: z.string(),
   email: z.string(),
   name: z.string(),
-  timezone: z.string(),
+  /** `null` until the account's zone is known. See `timeZoneNeedsCapture`. */
+  timezone: z.string().nullable(),
   locale: z.string(),
   onboardingCompleted: z.boolean(),
   onboardingCompletedAt: z.string().nullable(),
@@ -134,3 +168,18 @@ export const accountProfileResponseSchema = z.object({
 export type AccountProfileResponse = z.infer<
   typeof accountProfileResponseSchema
 >;
+
+/**
+ * Contract for capturing a browser-detected time zone into an account that has
+ * none. Deliberately narrower than {@link accountProfileSchema}: capture may
+ * only ever fill in an unknown zone, never change a known one or touch any
+ * other field, so it is safe to attempt on every page load.
+ */
+export const timeZoneCaptureSchema = z.object({
+  timezone: z
+    .string()
+    .trim()
+    .refine(isValidTimeZone, { message: "Unknown time zone." }),
+});
+
+export type TimeZoneCaptureInput = z.infer<typeof timeZoneCaptureSchema>;
