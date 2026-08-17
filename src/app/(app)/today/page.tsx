@@ -1,12 +1,12 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 
 import { QuickCapture } from "@/components/inbox/quick-capture";
 import { InAppReminderCues } from "@/components/notification/in-app-reminder-cues";
 import { FocusNow } from "@/components/task/focus-now";
-import { TaskList } from "@/components/task/task-list";
-import { buttonVariants } from "@/components/ui/button";
-import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
+import {
+  AvailableTasks,
+  TodayOrientation,
+} from "@/components/today/today-sections";
 import { DEFAULT_REMINDER_PREFERENCES } from "@/domain/notification/reminder";
 import { getAccountSummary } from "@/server/auth/session";
 import { getNotificationService } from "@/server/notification/service-factory";
@@ -22,40 +22,24 @@ export default async function TodayPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-semibold tracking-tight">Today</h1>
         <p className="text-pretty text-muted-foreground">
-          One clear place to see what matters now.
+          What to do now, and what to remember today.
         </p>
       </div>
-      <InAppReminderCues
-        locale={account?.locale ?? DEFAULT_LOCALE}
-        preferences={reminderPreferences}
-        timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
-      />
-      <div className="rounded-xl border bg-card p-6 text-card-foreground">
-        <QuickCapture
-          locale={account?.locale ?? DEFAULT_LOCALE}
-          timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
-        />
+      <InAppReminderCues preferences={reminderPreferences} />
+      {/* The one protected primary action — capture — leads the page. */}
+      <div className="rounded-xl border bg-card p-6 text-card-foreground shadow-sm">
+        <QuickCapture />
         <p className="mt-3 text-xs text-muted-foreground">
           Captures are saved to your Inbox, online or off, and sync
           automatically.
         </p>
       </div>
-      <FocusNow
-        locale={account?.locale ?? DEFAULT_LOCALE}
-        timeZone={account?.timezone ?? DEFAULT_TIMEZONE}
-      />
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-medium">Available tasks</h2>
-          <Link
-            className={buttonVariants({ size: "sm", variant: "outline" })}
-            href="/tasks/new"
-          >
-            New task
-          </Link>
-        </div>
-        <TaskList />
-      </div>
+      {/* First-run only: names what Rails is for. Hides once there is work. */}
+      <TodayOrientation />
+      <FocusNow />
+      {/* Low-emphasis: collapsed once populated so it never competes with the
+          focus decision above. */}
+      <AvailableTasks />
     </section>
   );
 }

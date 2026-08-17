@@ -167,9 +167,11 @@ test("shows the weekly agenda on a narrow mobile viewport", async ({
   await signIn(page, { onboarded: true, timezone: "America/New_York" });
   await page.goto("/calendar");
 
-  // Both layouts render the same data for full feature parity; the vertical
-  // mobile agenda is present in the DOM regardless of viewport.
-  await expect(page.getByTestId("agenda-week-list")).toBeAttached();
+  // One vertical seven-day agenda serves every viewport, so a narrow screen
+  // gets the identical layout — and the identical data — as a wide one.
+  const week = page.getByTestId("agenda-week");
+  await expect(week).toBeVisible();
+  await expect(week.locator("> li")).toHaveCount(7);
   await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
 });
 

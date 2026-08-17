@@ -3,7 +3,9 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
+import { TimeZoneProvider } from "@/components/account/time-zone-provider";
 import {
+  DEFAULT_LOCALE,
   hasCompletedOnboarding,
   resolveProtectedRouteRedirect,
 } from "@/domain/account/onboarding";
@@ -30,7 +32,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <OfflineProvider accountId={account!.userId}>
-      <AppShell>{children}</AppShell>
+      {/* Mounted once for every in-app destination, so every screen renders
+          clock times in the same zone — and an account with no zone records the
+          browser's exactly once, wherever the user happens to land first. */}
+      <TimeZoneProvider
+        accountTimeZone={account!.timezone}
+        locale={account!.locale ?? DEFAULT_LOCALE}
+      >
+        <AppShell>{children}</AppShell>
+      </TimeZoneProvider>
     </OfflineProvider>
   );
 }

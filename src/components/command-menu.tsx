@@ -138,14 +138,21 @@ export function CommandMenu() {
         </kbd>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-background/80 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs motion-reduce:transition-none" />
+        {/* The palette itself opens instantly and stays that way — it is a
+            keyboard tool, and any transition on it is latency the user feels
+            between the shortcut and typing. Its scrim is a different question:
+            an 80% wash of the background appearing in one frame is an abrupt
+            brightness jump across the whole viewport, which is the kind of
+            change reduced-motion users are protected from for good reason.
+            Crossfading only the scrim, faster than the eye tracks, removes the
+            jump without putting a single frame between ⌘K and the input. */}
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-background/80 transition-opacity duration-(--motion-fast) ease-material data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs motion-reduce:transition-none" />
         <Dialog.Popup
           className={cn(
             // Full-screen on mobile so the palette is usable by touch alone;
             // a centered card on larger screens.
             "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col bg-popover text-popover-foreground outline-none",
             "sm:top-[12vh] sm:left-1/2 sm:h-auto sm:max-h-[70vh] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:rounded-xl sm:border sm:shadow-lg",
-            "transition duration-150 ease-out data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none sm:data-ending-style:scale-[0.98] sm:data-starting-style:scale-[0.98]",
           )}
         >
           <Dialog.Title className="sr-only">Command menu</Dialog.Title>

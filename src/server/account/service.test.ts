@@ -19,6 +19,7 @@ function repository(overrides: Record<string, unknown> = {}) {
   return {
     getProfile: vi.fn(),
     updateProfile: vi.fn(),
+    captureTimeZone: vi.fn(),
     completeOnboarding: vi.fn(),
     ...overrides,
   } as never;
@@ -83,5 +84,62 @@ describe("createAccountService", () => {
       locale: "en-US",
     });
     expect(result).toMatchObject({ ok: true });
+  });
+});
+
+describe("captureTimeZone", () => {
+  it("records a detected zone for an account that has none", async () => {
+    const captured = profile({ timezone: "America/Mexico_City" });
+    const captureTimeZone = vi.fn().mockResolvedValue(captured);
+    const service = createAccountService(repository({ captureTimeZone }));
+
+    await expect(
+      service.captureTimeZone("user_1", { timezone: "America/Mexico_City" }),
+    ).resolves.toEqual({ ok: true, profile: captured });
+    expect(captureTimeZone).toHaveBeenCalledWith("user_1", {
+      timezone: "America/Mexico_City",
+    });
+  });
+
+  it("succeeds without changing anything when a zone is already known", async () => {
+    // The repository's IS NULL guard declines the write, which is the expected
+    // outcome on every load after the first — not a failure the client must
+    // handle.
+    const existing = profile({ timezone: "Europe/Madrid" });
+    const service = createAccountService(
+      repository({
+        captureTimeZone: vi.fn().mockResolvedValue(null),
+        getProfile: vi.fn().mockResolvedValue(existing),
+      }),
+    );
+
+    await expect(
+      service.captureTimeZone("user_1", { timezone: "America/Mexico_City" }),
+    ).resolves.toEqual({ ok: true, profile: existing });
+  });
+
+  it("rejects an unusable zone before touching the repository", async () => {
+    const captureTimeZone = vi.fn();
+    const service = createAccountService(repository({ captureTimeZone }));
+
+    const result = await service.captureTimeZone("user_1", {
+      timezone: "Mars/Phobos",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(captureTimeZone).not.toHaveBeenCalled();
+  });
+
+  it("reports not_found when the account does not exist at all", async () => {
+    const service = createAccountService(
+      repository({
+        captureTimeZone: vi.fn().mockResolvedValue(null),
+        getProfile: vi.fn().mockResolvedValue(null),
+      }),
+    );
+
+    await expect(
+      service.captureTimeZone("user_1", { timezone: "America/Mexico_City" }),
+    ).resolves.toEqual({ ok: false, reason: "not_found" });
   });
 });

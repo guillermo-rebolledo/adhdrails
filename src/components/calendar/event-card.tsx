@@ -1,4 +1,4 @@
-import { formatTimeRange } from "@/domain/calendar/format";
+import { formatEventTimes } from "@/domain/calendar/format";
 import type { EventOrigin, EventStatus } from "@/domain/event/event";
 import type { SyncState } from "@/offline/db";
 
@@ -18,11 +18,11 @@ export interface AgendaEvent {
 }
 
 /**
- * One Event as it appears in the agenda or Later list: its locale-aware time
- * range, title, and a quiet synchronization cue. Times are rendered in the
- * Event's own start time zone so an imported commitment keeps its original
- * wall-clock meaning. A `tentative` Event (a timed capture awaiting type
- * confirmation) is rendered in a lighter emphasis.
+ * One Event as it appears in the Later list: its locale-aware time range,
+ * title, and a quiet synchronization cue. Times are rendered in the account's
+ * time zone, matching the weekly agenda, with the original wall-clock start
+ * noted when the Event was authored elsewhere. A `tentative` Event (a timed
+ * capture awaiting type confirmation) is rendered in a lighter emphasis.
  */
 export function EventCard({
   event,
@@ -31,20 +31,19 @@ export function EventCard({
   stale,
 }: {
   event: AgendaEvent;
-  /** The viewing time zone; the Event's own zone still governs its clock time. */
+  /** The account's time zone; the Event's clock time is rendered in it. */
   timeZone: string;
   locale: string;
   stale?: boolean;
 }) {
-  // Imported all-day Events carry instants for storage but have no meaningful
-  // clock time; showing a range would be misleading, so they read "All day".
-  const range = event.isAllDay
-    ? "All day"
-    : formatTimeRange(event.startAt, event.endAt, event.startTimeZone, locale);
-  const zoneNote =
-    !event.isAllDay && event.startTimeZone !== timeZone
-      ? ` (${event.startTimeZone})`
-      : "";
+  const { range, original } = formatEventTimes({
+    startAt: event.startAt,
+    endAt: event.endAt,
+    timeZone: event.startTimeZone,
+    viewingTimeZone: timeZone,
+    locale,
+    isAllDay: event.isAllDay,
+  });
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border bg-card p-3 text-card-foreground">
@@ -66,7 +65,7 @@ export function EventCard({
       </div>
       <span className="text-sm text-muted-foreground">
         {range}
-        {zoneNote}
+        {original ? ` (${original})` : ""}
       </span>
     </div>
   );
