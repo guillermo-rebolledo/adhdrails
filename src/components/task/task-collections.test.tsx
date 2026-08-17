@@ -3,7 +3,7 @@
 import "fake-indexeddb/auto";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -151,7 +151,7 @@ describe("TaskCollections", () => {
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getByLabelText("Filter by area")).toHaveValue("");
     expect(screen.getByLabelText("Filter by energy")).toHaveValue("");
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getByText("All tasks")).toBeInTheDocument(),
     );
   });
@@ -259,11 +259,11 @@ describe("TaskCollections", () => {
     await screen.findByRole("status");
     expect(await screen.findAllByRole("listitem")).toHaveLength(100);
     await user.click(screen.getByRole("button", { name: "Load more" }));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(20),
     );
     await user.click(screen.getByRole("button", { name: "Load previous" }));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(100),
     );
   });
@@ -321,7 +321,7 @@ describe("TaskCollections", () => {
 
     expect(energy).toHaveValue("");
     expect(energy).toBeDisabled();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const todayRequest = apiRequest.mock.calls.find(([path]) =>
         String(path).includes("collection=today"),
       );

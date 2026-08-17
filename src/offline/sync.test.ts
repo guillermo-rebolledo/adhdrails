@@ -155,9 +155,14 @@ describe("createSyncEngine", () => {
     // Reconnect fires the online event and the queue drains.
     online = true;
     window.dispatchEvent(new Event("online"));
-    await vi.waitFor(async () => {
-      expect(await db.outbox.count()).toBe(0);
-    });
+    // Explicit budget: `vi.waitFor` is Vitest's own helper, so the global
+    // asyncUtilTimeout configured for Testing Library does not govern it.
+    await vi.waitFor(
+      async () => {
+        expect(await db.outbox.count()).toBe(0);
+      },
+      { timeout: 5000 },
+    );
     expect(afterSync).toHaveBeenCalled();
 
     engine.stop();
@@ -184,7 +189,9 @@ describe("createSyncEngine", () => {
     );
     const engine = createSyncEngine({ db, send, afterSync });
     engine.start();
-    await vi.waitFor(() => expect(afterSync).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(afterSync).toHaveBeenCalledOnce(), {
+      timeout: 5000,
+    });
 
     await captureInboxItem(db, "Queued during pull");
     const synchronization = engine.sync();

@@ -1,7 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
+
+// Testing Library retries `findBy*` and `waitFor` for 1s by default, which is
+// generous on an idle machine and far too tight while every core is running
+// another worker: a query would give up mid-render and report the previous
+// state as the final one. This governs every async query in the suite, so the
+// budget lives here rather than being passed at hundreds of call sites.
+configure({ asyncUtilTimeout: 5000 });
 
 // Vitest isn't configured with globals, so Testing Library's automatic
 // afterEach cleanup never registers. Unmount rendered trees between tests so
