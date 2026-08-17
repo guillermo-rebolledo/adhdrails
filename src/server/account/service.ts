@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { accountProfileSchema } from "@/domain/account/onboarding";
+import {
+  accountProfileSchema,
+  timeZoneCaptureSchema,
+} from "@/domain/account/onboarding";
 
 import type { AccountProfile, AccountRepository } from "./repository";
 
@@ -54,6 +57,36 @@ export function createAccountService(repository: AccountRepository) {
       rawInput: unknown,
     ): Promise<AccountResult> {
       return apply(userId, rawInput, repository.completeOnboarding);
+    },
+
+    /**
+     * Records a browser-detected zone for an account that has none. An account
+     * that already has one is *not* an error — the capture simply had nothing
+     * to do — so the current profile is returned either way and the client
+     * never has to treat a redundant attempt as a failure.
+     */
+    async captureTimeZone(
+      userId: string,
+      rawInput: unknown,
+    ): Promise<AccountResult> {
+      const parsed = timeZoneCaptureSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          reason: "invalid",
+          fieldErrors: z.flattenError(parsed.error).fieldErrors,
+        };
+      }
+
+      const captured = await repository.captureTimeZone(userId, parsed.data);
+      if (captured) {
+        return { ok: true, profile: captured };
+      }
+
+      const existing = await repository.getProfile(userId);
+      return existing
+        ? { ok: true, profile: existing }
+        : { ok: false, reason: "not_found" };
     },
   };
 }

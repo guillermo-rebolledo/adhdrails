@@ -1,19 +1,9 @@
-import { headers } from "next/headers";
 import Link from "next/link";
-import { Temporal } from "temporal-polyfill";
 
 import { TaskCollections } from "@/components/task/task-collections";
 import { buttonVariants } from "@/components/ui/button";
-import { DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
-import { getAccountSummary } from "@/server/auth/session";
 
-export default async function TasksPage() {
-  const account = await getAccountSummary(await headers());
-  const timeZone = account?.timezone ?? DEFAULT_TIMEZONE;
-  const today = Temporal.Now.zonedDateTimeISO(timeZone)
-    .toPlainDate()
-    .toString();
-
+export default function TasksPage() {
   return (
     <section className="mx-auto flex max-w-2xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
@@ -27,7 +17,7 @@ export default async function TasksPage() {
           New task
         </Link>
       </div>
-      <TaskCollections today={today} />
+      <TaskCollections />
     </section>
   );
 }

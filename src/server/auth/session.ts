@@ -1,4 +1,4 @@
-import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
+import { DEFAULT_LOCALE } from "@/domain/account/onboarding";
 
 import { getAuth } from "./index";
 
@@ -6,7 +6,13 @@ export interface AccountSummary {
   userId: string;
   email: string;
   name: string;
-  timezone: string;
+  /**
+   * `null` when the account has never told Rails where it is. Deliberately not
+   * coerced to a default here: a caller that renders a clock time must decide
+   * between the browser's zone (client) and {@link DEFAULT_TIMEZONE} (server),
+   * and that decision belongs at the call site, not hidden in this boundary.
+   */
+  timezone: string | null;
   locale: string;
   onboardingCompletedAt: Date | null;
 }
@@ -31,7 +37,7 @@ export async function getAccountSummary(
     userId: user.id,
     email: user.email,
     name: user.name,
-    timezone: user.timezone ?? DEFAULT_TIMEZONE,
+    timezone: user.timezone ?? null,
     locale: user.locale ?? DEFAULT_LOCALE,
     onboardingCompletedAt: user.onboardingCompletedAt ?? null,
   };

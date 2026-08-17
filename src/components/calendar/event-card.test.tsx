@@ -47,7 +47,7 @@ describe("EventCard", () => {
     expect(screen.queryByText(/9:00|AM|PM/)).not.toBeInTheDocument();
   });
 
-  it("notes a differing time zone for a timed event", () => {
+  it("renders a foreign-zone event on the account's clock, noting its original", () => {
     render(
       <EventCard
         event={event({
@@ -58,6 +58,9 @@ describe("EventCard", () => {
         timeZone={NY}
       />,
     );
-    expect(screen.getByText(/Europe\/Berlin/)).toBeInTheDocument();
+    // Authored as 3:00 PM in Berlin; the New York account reads 9:00 AM, with
+    // the original kept alongside so the commitment is still recognisable.
+    expect(screen.getByText(/9:00/)).toBeInTheDocument();
+    expect(screen.getByText(/3:00.*Europe\/Berlin/)).toBeInTheDocument();
   });
 });

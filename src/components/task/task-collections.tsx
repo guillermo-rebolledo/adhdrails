@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useLiveQuery } from "dexie-react-hooks";
 
+import { Temporal } from "temporal-polyfill";
+
+import { useClock } from "@/components/account/time-zone-provider";
 import { Button } from "@/components/ui/button";
 import {
   TASK_COLLECTIONS,
@@ -61,11 +64,20 @@ function taskPageLoader(
  * optimistic and offline state. Filters are opt-in and clear together.
  */
 export function TaskCollections({
-  today,
+  today: todayOverride,
+  ...overrides
 }: {
-  /** The account-local date fixed by the server for this render. */
-  today: string;
-}) {
+  /** Today's local date. Supplied only for standalone renders and tests. */
+  today?: string;
+  timeZone?: string;
+} = {}) {
+  const { timeZone } = useClock(overrides);
+  // Derived from the app clock rather than fixed by the server: "today" is the
+  // one value on this screen that moves with the user's zone, and a server that
+  // does not yet know that zone would otherwise scope the list to the wrong day.
+  const today =
+    todayOverride ??
+    Temporal.Now.zonedDateTimeISO(timeZone).toPlainDate().toString();
   const { db } = useOffline();
   const [collection, setCollection] = useState<TaskCollection>("anytime");
   const [areaId, setAreaId] = useState<string | null>(null);

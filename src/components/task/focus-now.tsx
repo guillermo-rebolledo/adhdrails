@@ -30,6 +30,7 @@ import { useOffline } from "@/offline/provider";
 import { EnergyRightNow } from "./energy-right-now";
 import { FocusNextItems } from "./focus-next-items";
 import { FocusSession } from "./focus-session";
+import { useClock } from "@/components/account/time-zone-provider";
 
 /** How long a just-completed session can be undone before it flushes to sync. */
 const COMPLETION_UNDO_WINDOW_MS = 10_000;
@@ -80,18 +81,18 @@ const COMMITMENT_HORIZON_HOURS = 24;
  * manufacturing urgency. The recommender decides; the user always overrides.
  */
 export function FocusNow({
-  timeZone,
-  locale,
   now,
   undoWindowMs = COMPLETION_UNDO_WINDOW_MS,
+  ...overrides
 }: {
-  timeZone: string;
-  locale: string;
+  timeZone?: string;
+  locale?: string;
   /** The reference instant. Defaults to now; injectable to keep tests stable. */
   now?: string;
   /** The completion Undo window. Overridable only to keep tests fast. */
   undoWindowMs?: number;
 }) {
+  const { timeZone, locale } = useClock(overrides);
   const { db, sync, accountId } = useOffline();
   const { energy, setEnergy } = useCurrentEnergy(accountId);
   const analytics = useAnalytics();

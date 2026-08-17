@@ -12,6 +12,7 @@ import { EVENT_TITLE_MAX_LENGTH } from "@/domain/event/event";
 import { useLocalDraft } from "@/hooks/use-local-draft";
 import { createEvent } from "@/offline/event-commands";
 import { useOffline } from "@/offline/provider";
+import { useClock } from "@/components/account/time-zone-provider";
 
 const DRAFT_KEY = "event-new";
 
@@ -37,7 +38,10 @@ function useClientDefault(compute: () => string): string {
  * 30 minutes after the start. All-day and recurring Events are not creatable
  * here by design — they arrive only through Google import.
  */
-export function EventCreateForm({ timeZone }: { timeZone: string }) {
+export function EventCreateForm(overrides: { timeZone?: string } = {}) {
+  // Seeds the form's zone field, so a new Event lands at the instant the user
+  // meant rather than one derived from an unknown account zone.
+  const { timeZone } = useClock(overrides);
   const { db, sync } = useOffline();
   const router = useRouter();
   const titleId = useId();
