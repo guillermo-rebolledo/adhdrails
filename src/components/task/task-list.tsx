@@ -34,6 +34,12 @@ interface Ack {
   title: string;
 }
 
+/** A row mid-collapse, with the slot it held in the caller's list. */
+interface ExitingRow {
+  task: LocalTask;
+  index: number;
+}
+
 /**
  * The Available Tasks list on Today. It reads active Tasks straight from the
  * Dexie replica, so work appears whether online or offline. Completing a Task
@@ -47,6 +53,7 @@ export function TaskItems({
   emptyMessage = "No tasks yet. Anything you capture and turn into a task will wait here.",
   undoWindowMs = UNDO_WINDOW_MS,
   completionNoticeMs = COMPLETION_NOTICE_MS,
+  rowExitMs = ROW_EXIT_MS,
 }: {
   tasks: LocalTask[];
   emptyMessage?: string;
@@ -54,6 +61,11 @@ export function TaskItems({
   undoWindowMs?: number;
   /** The completion Undo window. Overridable only to keep tests fast. */
   completionNoticeMs?: number;
+  /**
+   * How long a removed row is held to collapse. Overridable only so a test can
+   * assert on the collapsing row without racing a 260ms window.
+   */
+  rowExitMs?: number;
 }) {
   const { db, sync } = useOffline();
 
@@ -78,12 +90,18 @@ export function TaskItems({
    * snapshots, not live records: the underlying row is already gone from the
    * query by the time they render.
    */
-  const [exiting, setExiting] = useState<LocalTask[]>([]);
+  const [exiting, setExiting] = useState<ExitingRow[]>([]);
   const exitTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   function beginExit(task: LocalTask) {
+    // Capture the row's position now, while it is still in the caller's list.
+    // Once the write lands it is gone from `tasks` and there is nothing left to
+    // derive a position from.
+    const index = tasks.findIndex((row) => row.id === task.id);
     setExiting((current) =>
-      current.some((row) => row.id === task.id) ? current : [...current, task],
+      current.some((row) => row.task.id === task.id)
+        ? current
+        : [...current, { task, index: index === -1 ? tasks.length : index }],
     );
     const existing = exitTimers.current.get(task.id);
     if (existing) {
@@ -93,8 +111,10 @@ export function TaskItems({
       task.id,
       setTimeout(() => {
         exitTimers.current.delete(task.id);
-        setExiting((current) => current.filter((row) => row.id !== task.id));
-      }, ROW_EXIT_MS),
+        setExiting((current) =>
+          current.filter((row) => row.task.id !== task.id),
+        );
+      }, rowExitMs),
     );
   }
 
@@ -105,21 +125,32 @@ export function TaskItems({
       clearTimeout(timer);
       exitTimers.current.delete(id);
     }
-    setExiting((current) => current.filter((row) => row.id !== id));
+    setExiting((current) => current.filter((row) => row.task.id !== id));
   }
 
   /*
-   * The rows to render: everything live, plus anything still collapsing that
-   * the query has already dropped. Re-sorting by `createdAt` puts the leaving
-   * row back in the position it held, so it collapses in place rather than
-   * jumping to the end to do it. An id that is somehow in both wins from the
-   * live side — a restored row is a real row again.
+   * The rows to render: the caller's list exactly as given, with anything still
+   * collapsing spliced back into the slot it occupied.
+   *
+   * The caller's order is not ours to reproduce. The Tasks collections view
+   * orders by the server's page sequence and deliberately keeps local-only,
+   * unsynced Tasks after the server-backed ones; re-deriving an order here —
+   * even one that happens to match what Today does — would interleave an
+   * optimistic Task among server rows and quietly override that decision.
+   *
+   * Re-inserting by remembered index sidesteps the question entirely: whatever
+   * the caller ordered, a leaving row collapses where it sat. Ascending index
+   * order matters, because each remembered index refers to a list that already
+   * contains the rows inserted before it. An id in both lists is dropped from
+   * the exit set — a restored row is a real row again, and the live one wins.
    */
   const liveIds = new Set(tasks.map((task) => task.id));
-  const visibleRows = [
-    ...tasks,
-    ...exiting.filter((row) => !liveIds.has(row.id)),
-  ].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const visibleRows = [...tasks];
+  for (const row of exiting
+    .filter(({ task }) => !liveIds.has(task.id))
+    .sort((left, right) => left.index - right.index)) {
+    visibleRows.splice(Math.min(row.index, visibleRows.length), 0, row.task);
+  }
 
   // Finalize any still-pending mutation on unmount so it is never silently lost.
   useEffect(() => {
@@ -281,7 +312,7 @@ export function TaskItems({
          */
         <ul aria-label="Available tasks" className="flex flex-col">
           {visibleRows.map((task) => {
-            const isExiting = exiting.some((row) => row.id === task.id);
+            const isExiting = exiting.some((row) => row.task.id === task.id);
             return (
               <li
                 className={cn(

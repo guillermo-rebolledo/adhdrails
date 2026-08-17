@@ -42,6 +42,12 @@ const UNDO_WINDOW_MS = 10_000;
  */
 const ROW_EXIT_MS = 260;
 
+/** A row mid-collapse, with the slot it held in the rendered list. */
+interface ExitingRow {
+  item: LocalInboxItem;
+  index: number;
+}
+
 interface PendingDelete {
   id: string;
   title: string;
@@ -95,12 +101,20 @@ export function InboxList({
    * deleted and classified ones are genuinely gone from it. Holding a snapshot
    * covers both without each caller needing to know which kind it is.
    */
-  const [exiting, setExiting] = useState<LocalInboxItem[]>([]);
+  const [exiting, setExiting] = useState<ExitingRow[]>([]);
   const exitTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   function beginExit(item: LocalInboxItem) {
+    // Capture the row's position now, while it is still rendered. Skip runs
+    // this before marking the row skipped and the other four run it before the
+    // write lands, so in every case the row is still in the list here.
+    const index = (items ?? [])
+      .filter((row) => !skipped.has(row.id))
+      .findIndex((row) => row.id === item.id);
     setExiting((current) =>
-      current.some((row) => row.id === item.id) ? current : [...current, item],
+      current.some((row) => row.item.id === item.id)
+        ? current
+        : [...current, { item, index: index === -1 ? 0 : index }],
     );
     const existing = exitTimers.current.get(item.id);
     if (existing) {
@@ -110,7 +124,9 @@ export function InboxList({
       item.id,
       setTimeout(() => {
         exitTimers.current.delete(item.id);
-        setExiting((current) => current.filter((row) => row.id !== item.id));
+        setExiting((current) =>
+          current.filter((row) => row.item.id !== item.id),
+        );
       }, ROW_EXIT_MS),
     );
   }
@@ -122,7 +138,7 @@ export function InboxList({
       clearTimeout(timer);
       exitTimers.current.delete(id);
     }
-    setExiting((current) => current.filter((row) => row.id !== id));
+    setExiting((current) => current.filter((row) => row.item.id !== id));
   }
 
   const items = useLiveQuery(
@@ -217,26 +233,32 @@ export function InboxList({
   }
 
   /*
-   * The rows to render: everything still live and unskipped, plus anything
-   * mid-collapse that has already left the query. Merged rows are re-sorted
-   * newest-first — the live query's own order — so a leaving row collapses
-   * where it sat instead of jumping to one end to do it. The highlight sort
-   * then runs last, unchanged, because a deep-linked row still belongs on top.
+   * The rows to render: the query's own order, with anything mid-collapse
+   * spliced back into the slot it held.
+   *
+   * A skipped row is still in the query and merely filtered out, so it keeps
+   * its place for free. Deleted and classified rows are genuinely gone and have
+   * to be put back — by remembered index rather than by re-deriving a sort,
+   * because reproducing an ordering the query owns means two places have to
+   * agree forever, and the copy here is the one that would silently drift.
+   *
+   * Ascending index order matters: each remembered index refers to a list that
+   * already contains the rows inserted before it. The highlight sort still runs
+   * last, unchanged, because a deep-linked row belongs on top regardless.
    */
-  const exitingIds = new Set(exiting.map((row) => row.id));
+  const exitingIds = new Set(exiting.map((row) => row.item.id));
   const liveIds = new Set(items.map((item) => item.id));
-  const visible = [
-    ...items.filter((item) => !skipped.has(item.id) || exitingIds.has(item.id)),
-    ...exiting.filter((row) => !liveIds.has(row.id)),
-  ]
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .sort((left, right) =>
-      left.id === highlightedItemId
-        ? -1
-        : right.id === highlightedItemId
-          ? 1
-          : 0,
-    );
+  const visible = items.filter(
+    (item) => !skipped.has(item.id) || exitingIds.has(item.id),
+  );
+  for (const row of exiting
+    .filter(({ item }) => !liveIds.has(item.id))
+    .sort((left, right) => left.index - right.index)) {
+    visible.splice(Math.min(row.index, visible.length), 0, row.item);
+  }
+  visible.sort((left, right) =>
+    left.id === highlightedItemId ? -1 : right.id === highlightedItemId ? 1 : 0,
+  );
 
   return (
     <div className="flex flex-col gap-3">
