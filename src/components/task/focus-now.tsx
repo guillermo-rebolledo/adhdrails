@@ -26,6 +26,7 @@ import {
 } from "@/offline/focus-commands";
 import { completeTask, updateTask } from "@/offline/task-commands";
 import { useOffline } from "@/offline/provider";
+import { cn } from "@/lib/utils";
 
 import { EnergyRightNow } from "./energy-right-now";
 import { FocusNextItems } from "./focus-next-items";
@@ -316,6 +317,30 @@ export function FocusNow({
     setTaskDone(true);
   }
 
+  /*
+   * Which of the four cards below is showing.
+   *
+   * The card is the centre of the product, and it used to swap contents between
+   * two frames with nothing in between — finish a session and the surface you
+   * were looking at is replaced by a different one, in place, instantly. Read
+   * literally that says the old thing did not go anywhere and the new thing did
+   * not come from anywhere; the most meaningful moment in the app was the one
+   * that acknowledged itself least.
+   *
+   * Naming the stage gives the wrapper below a key to animate on, so an arriving
+   * card settles into place instead of appearing already there. Deferral and
+   * task-selection stay inside `recommendation`, so choosing a different task
+   * refreshes the card's text without re-animating the whole surface — only a
+   * genuine change of stage is worth a transition.
+   */
+  const focusStage = completion
+    ? "completion"
+    : activeSession
+      ? "session"
+      : displayed === null
+        ? "empty"
+        : "recommendation";
+
   return (
     <section aria-label="Focus now" className="flex flex-col gap-4">
       {showEnergy ? (
@@ -330,149 +355,171 @@ export function FocusNow({
         ) : null}
       </div>
 
-      {completion ? (
-        // A calm acknowledgement after completing a session. Return to Today is
-        // the primary next action; nothing starts on its own. A brief Undo can
-        // reverse the completion, and the user may also mark the Task itself done.
-        <div
-          aria-label="Focus complete"
-          className="rounded-xl border bg-card p-6 text-card-foreground"
-        >
-          <p className="font-medium" role="status">
-            {FOCUS_COMPLETED_MESSAGE}
-          </p>
-
-          {taskDone ? (
-            <p className="mt-2 text-sm text-muted-foreground" role="status">
-              Marked “{completion.taskTitle}” done.
-            </p>
-          ) : (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <p className="text-sm text-muted-foreground">
-                Finished “{completion.taskTitle}”?
-              </p>
-              <Button
-                onClick={() => void onCompleteTask()}
-                size="sm"
-                variant="outline"
-              >
-                Mark task done
-              </Button>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={onReturnToday}>Return to Today</Button>
-            <Button onClick={onViewNextItems} variant="outline">
-              View next items
-            </Button>
-            {undoAvailable ? (
-              <Button onClick={() => void onUndoCompletion()} variant="ghost">
-                Undo
-              </Button>
-            ) : null}
-          </div>
-
-          {showNextItems ? (
-            <div className="mt-5 border-t pt-4">
-              <FocusNextItems
-                // Never re-offer the Task just stepped away from; if it was
-                // marked done it is already gone, and if not it should not lead
-                // the calm next decision.
-                items={excludeTask(nextItems, completion.taskId)}
-                locale={locale}
-                onFocusTask={onStart}
-                timeZone={timeZone}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : activeSession ? (
-        <FocusSession
-          locale={locale}
-          now={now}
-          onComplete={() => onCompleteSession(activeSession)}
-          session={activeSession}
-          timeZone={timeZone}
-        />
-      ) : displayed === null ? (
-        <div className="flex flex-col items-start gap-4 rounded-xl border bg-card p-6 text-card-foreground">
-          <p className="text-muted-foreground">
-            Nothing to focus on right now. Capture a thought above or add a task
-            when you’re ready — there’s no rush.
-          </p>
-          <Link
-            className={buttonVariants({ size: "sm", variant: "outline" })}
-            href="/tasks/new"
+      {/* Keyed on the stage so React remounts on a real stage change and the
+          entrance plays. The lift is one step — the card is arriving, not
+          announcing itself. Under reduced motion the global rule in globals.css
+          zeroes the translate and leaves the fade, which is the right
+          substitute: the change still registers, nothing travels. */}
+      <div
+        className="animate-in duration-(--motion-calm) ease-enter fade-in-0 slide-in-from-bottom-1"
+        key={focusStage}
+      >
+        {completion ? (
+          // A calm acknowledgement after completing a session. Return to Today is
+          // the primary next action; nothing starts on its own. A brief Undo can
+          // reverse the completion, and the user may also mark the Task itself done.
+          <div
+            aria-label="Focus complete"
+            className="rounded-xl border bg-card p-6 text-card-foreground"
           >
-            New task
-          </Link>
-        </div>
-      ) : (
-        <div className="rounded-xl border bg-card p-6 text-card-foreground">
-          <p className="text-sm text-muted-foreground">Focus now</p>
-          <p className="mt-1 text-lg font-medium">{displayed.title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {reasonText(
-              manuallySelected ? null : recommendation.reason,
-              timeZone,
-              locale,
-            )}
-          </p>
+            <p className="font-medium" role="status">
+              {FOCUS_COMPLETED_MESSAGE}
+            </p>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => onStart(displayed.id)}>Start</Button>
-            {isFlexible ? (
-              <Button
-                aria-expanded={deferOpen}
-                onClick={() => setDeferOpen((open) => !open)}
-                variant="ghost"
-              >
-                Not now
+            {taskDone ? (
+              <p className="mt-2 text-sm text-muted-foreground" role="status">
+                Marked “{completion.taskTitle}” done.
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Finished “{completion.taskTitle}”?
+                </p>
+                <Button
+                  onClick={() => void onCompleteTask()}
+                  size="sm"
+                  variant="outline"
+                >
+                  Mark task done
+                </Button>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={onReturnToday}>Return to Today</Button>
+              <Button onClick={onViewNextItems} variant="outline">
+                View next items
               </Button>
+              {undoAvailable ? (
+                <Button onClick={() => void onUndoCompletion()} variant="ghost">
+                  Undo
+                </Button>
+              ) : null}
+            </div>
+
+            {showNextItems ? (
+              <div className="mt-5 border-t pt-4">
+                <FocusNextItems
+                  // Never re-offer the Task just stepped away from; if it was
+                  // marked done it is already gone, and if not it should not lead
+                  // the calm next decision.
+                  items={excludeTask(nextItems, completion.taskId)}
+                  locale={locale}
+                  onFocusTask={onStart}
+                  timeZone={timeZone}
+                />
+              </div>
             ) : null}
           </div>
+        ) : activeSession ? (
+          <FocusSession
+            locale={locale}
+            now={now}
+            onComplete={() => onCompleteSession(activeSession)}
+            session={activeSession}
+            timeZone={timeZone}
+          />
+        ) : displayed === null ? (
+          <div className="flex flex-col items-start gap-4 rounded-xl border bg-card p-6 text-card-foreground">
+            <p className="text-muted-foreground">
+              Nothing to focus on right now. Capture a thought above or add a
+              task when you’re ready — there’s no rush.
+            </p>
+            <Link
+              className={buttonVariants({ size: "sm", variant: "outline" })}
+              href="/tasks/new"
+            >
+              New task
+            </Link>
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-card p-6 text-card-foreground">
+            <p className="text-sm text-muted-foreground">Focus now</p>
+            <p className="mt-1 text-lg font-medium">{displayed.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {reasonText(
+                manuallySelected ? null : recommendation.reason,
+                timeZone,
+                locale,
+              )}
+            </p>
 
-          {isFlexible && deferOpen ? (
-            <div className="mt-3 flex flex-col gap-2 border-t pt-3">
-              <p className="text-sm text-muted-foreground">Move it to…</p>
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => onStart(displayed.id)}>Start</Button>
+              {isFlexible ? (
                 <Button
-                  onClick={() => onDefer("later-today")}
-                  size="sm"
-                  variant="outline"
+                  aria-expanded={deferOpen}
+                  onClick={() => setDeferOpen((open) => !open)}
+                  variant="ghost"
                 >
-                  Later today
+                  Not now
                 </Button>
-                <Button
-                  onClick={() => onDefer("tomorrow")}
-                  size="sm"
-                  variant="outline"
-                >
-                  Tomorrow
-                </Button>
-                <label className="flex items-center gap-1.5 text-sm">
-                  <input
-                    aria-label="Choose a date"
-                    className="h-7 rounded-md border bg-background px-2 text-sm"
-                    onChange={(event) => setCustomDate(event.target.value)}
-                    type="date"
-                    value={customDate}
-                  />
-                  <Button
-                    disabled={customDate === ""}
-                    onClick={() => onDefer("custom")}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Move
-                  </Button>
-                </label>
+              ) : null}
+            </div>
+
+            {/* The same `aria-expanded` disclosure as Available Tasks on Today,
+              opening the same way. Two controls that describe themselves
+              identically to assistive tech should not behave differently to
+              everyone else. */}
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows] duration-(--motion-calm) ease-enter motion-reduce:transition-none",
+                isFlexible && deferOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+              )}
+              inert={!(isFlexible && deferOpen)}
+            >
+              <div className="overflow-hidden">
+                <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                  <p className="text-sm text-muted-foreground">Move it to…</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={() => onDefer("later-today")}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Later today
+                    </Button>
+                    <Button
+                      onClick={() => onDefer("tomorrow")}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Tomorrow
+                    </Button>
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input
+                        aria-label="Choose a date"
+                        className="h-7 rounded-md border bg-background px-2 text-sm"
+                        onChange={(event) => setCustomDate(event.target.value)}
+                        type="date"
+                        value={customDate}
+                      />
+                      <Button
+                        disabled={customDate === ""}
+                        onClick={() => onDefer("custom")}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Move
+                      </Button>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {!activeSession && !completion && others.length > 0 ? (
         <div className="flex flex-col gap-2">

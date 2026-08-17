@@ -47,6 +47,48 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Motion curves.
+ *
+ * Rails is a calm surface, so every curve here is critically damped — it
+ * settles onto its target and stops, never overshoots. Overshoot reads as
+ * playful, and it is only honest when the user's own gesture carried the
+ * momentum that justifies it. The one place that is true is the drawer, whose
+ * swipe physics Base UI owns; nothing else in the app is thrown or flicked, so
+ * nothing else bounces.
+ *
+ * `enter` and `exit` are mirror images (control points reflected through the
+ * midpoint), so a surface returns along the path it arrived on instead of
+ * leaving on a different-feeling curve.
+ */
+@theme {
+  /* Decelerate onto the target: fast at first, settling at the end. */
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  /* The mirror of `enter` — accelerate away, for anything leaving. */
+  --ease-exit: cubic-bezier(0.64, 0, 0.78, 0);
+  /* Material curve for translucent surfaces and scrims. */
+  --ease-material: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /*
+   * Tracking is size-specific. Letters read too far apart as type grows and
+   * too tight as it shrinks, so a single `letter-spacing` is always wrong
+   * somewhere. Attaching tracking to each step of the scale means every
+   * `text-*` utility carries the right value without anyone remembering to.
+   */
+  --text-xs--letter-spacing: 0.006em;
+  --text-sm--letter-spacing: 0.003em;
+  --text-base--letter-spacing: 0em;
+  --text-lg--letter-spacing: -0.009em;
+  --text-xl--letter-spacing: -0.013em;
+  --text-2xl--letter-spacing: -0.017em;
+  --text-3xl--letter-spacing: -0.021em;
+  --text-4xl--letter-spacing: -0.024em;
+
+  /* Large type also wants tighter leading than the scale's default. */
+  --text-3xl--line-height: 1.15;
+  --text-4xl--line-height: 1.08;
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -80,6 +122,24 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * Motion durations. Tailwind has no `--duration-*` theme namespace, so these
+   * are plain properties read back as `duration-(--motion-quick)`.
+   *
+   * The scale is short on purpose. Response is the foundation everything else
+   * is built on: the moment lag becomes perceptible, directness collapses, and
+   * no amount of curve refinement gets it back. Anything the user is waiting on
+   * before they can act belongs at `fast` or below.
+   */
+  /* Press and hover feedback — must read as immediate, not animated. */
+  --motion-fast: 120ms;
+  /* Small in-place reveals and crossfades. */
+  --motion-quick: 180ms;
+  /* Disclosures, card state changes, list rows leaving. */
+  --motion-calm: 260ms;
+  /* Large surfaces travelling a real distance. */
+  --motion-surface: 320ms;
 }
 
 .dark {
@@ -156,5 +216,61 @@
     --tw-exit-scale: 1 !important;
     --tw-exit-rotate: 0 !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Reduced transparency (WCAG 2.2 AA · macOS/iOS "Reduce Transparency").
+ *
+ * Translucency is a hierarchy device here, not decoration: scrims separate a
+ * modal task from what it covers. When the user asks for less transparency we
+ * keep the separation and drop the blur — a frosted surface becomes an opaque
+ * one. The scrims are deepened at the same time, because `bg-black/10` only
+ * reads as separation while a blur is doing most of the work; without it, a 10%
+ * wash would leave the layer underneath legible and the boundary ambiguous.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  /*
+   * Standard property only — Lightning CSS adds the `-webkit-` prefix from
+   * browserslist. Writing both by hand made it collapse the pair down to the
+   * prefixed one alone, which silently left every browser that implements the
+   * unprefixed property without the override.
+   */
+  *,
+  *::before,
+  *::after {
+    backdrop-filter: none !important;
+  }
+
+  [data-slot="sheet-overlay"],
+  [data-slot="drawer-overlay"] {
+    background-color: color-mix(in oklch, var(--background) 55%, black);
+  }
+}
+
+/*
+ * Increased contrast (WCAG 2.2 AA · macOS/iOS "Increase Contrast").
+ *
+ * Floating surfaces stop relying on shadow and tint to separate themselves and
+ * take a defined border against a near-solid background instead. Muted text is
+ * pulled back toward the foreground: at this setting a deliberately quiet label
+ * is a label the user cannot read.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: oklch(0.38 0 0);
+    --border: oklch(0.72 0 0);
+  }
+
+  .dark {
+    --muted-foreground: oklch(0.82 0 0);
+    --border: oklch(1 0 0 / 34%);
+  }
+
+  [data-slot="sheet-content"],
+  [data-slot="drawer-popup"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="tooltip-content"] {
+    border: 1px solid var(--border);
   }
 }

@@ -34,6 +34,13 @@ const syncStateCopy: Record<SyncState, string> = {
 
 /** How long an app-owned deletion can be undone before it finalizes. */
 const UNDO_WINDOW_MS = 10_000;
+/**
+ * How long a retired row is held on screen to collapse out of the list. Matches
+ * `--motion-calm` in `globals.css`; the row unmounts once it finishes, so a
+ * longer value would leave an invisible row holding space in the list and a
+ * shorter one would cut the collapse off partway.
+ */
+const ROW_EXIT_MS = 260;
 
 interface PendingDelete {
   id: string;
@@ -75,6 +82,49 @@ export function InboxList({
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDeleteId = useRef<string | null>(null);
 
+  /*
+   * Rows on their way out.
+   *
+   * Five different actions retire an Inbox row — delete, skip, and the three
+   * classifications — and every one of them made it disappear instantly while
+   * the list snapped shut underneath. Processing an Inbox is a repetitive act,
+   * so that snap happens over and over; a row that collapses instead lets the
+   * user see which one they just dealt with and keeps their place in the list.
+   *
+   * Skipped rows are still in the live query and merely filtered out, while
+   * deleted and classified ones are genuinely gone from it. Holding a snapshot
+   * covers both without each caller needing to know which kind it is.
+   */
+  const [exiting, setExiting] = useState<LocalInboxItem[]>([]);
+  const exitTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  function beginExit(item: LocalInboxItem) {
+    setExiting((current) =>
+      current.some((row) => row.id === item.id) ? current : [...current, item],
+    );
+    const existing = exitTimers.current.get(item.id);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    exitTimers.current.set(
+      item.id,
+      setTimeout(() => {
+        exitTimers.current.delete(item.id);
+        setExiting((current) => current.filter((row) => row.id !== item.id));
+      }, ROW_EXIT_MS),
+    );
+  }
+
+  /** Drops a row out of the exit set immediately — used when Undo restores it. */
+  function cancelExit(id: string) {
+    const timer = exitTimers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      exitTimers.current.delete(id);
+    }
+    setExiting((current) => current.filter((row) => row.id !== id));
+  }
+
   const items = useLiveQuery(
     () =>
       db.inboxItems
@@ -100,6 +150,10 @@ export function InboxList({
 
   // Finalize any still-pending deletion on unmount so it is never silently lost.
   useEffect(() => {
+    // Captured on mount rather than read in the cleanup: the cleanup runs after
+    // the component is gone, and the exit timers it has to clear are the ones
+    // that belonged to this instance.
+    const timers = exitTimers.current;
     return () => {
       if (deleteTimer.current) {
         clearTimeout(deleteTimer.current);
@@ -107,6 +161,10 @@ export function InboxList({
       if (pendingDeleteId.current) {
         void finalizeInboxItemDeletion(db, pendingDeleteId.current);
       }
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
+      }
+      timers.clear();
     };
   }, [db]);
 
@@ -125,6 +183,7 @@ export function InboxList({
     if (pendingDeleteId.current && pendingDeleteId.current !== item.id) {
       await finalizeNow(pendingDeleteId.current);
     }
+    beginExit(item);
     await deleteInboxItemLocally(db, item.id);
     pendingDeleteId.current = item.id;
     setPendingDelete({ id: item.id, title: item.title });
@@ -142,12 +201,14 @@ export function InboxList({
       deleteTimer.current = null;
     }
     pendingDeleteId.current = null;
+    cancelExit(pendingDelete.id);
     await restoreInboxItem(db, pendingDelete.id);
     setPendingDelete(null);
   }
 
-  function onSkip(id: string) {
-    setSkipped((previous) => new Set(previous).add(id));
+  function onSkip(item: LocalInboxItem) {
+    beginExit(item);
+    setSkipped((previous) => new Set(previous).add(item.id));
     setMessage("Skipped for now. It stays in your Inbox.");
   }
 
@@ -155,8 +216,20 @@ export function InboxList({
     return null;
   }
 
-  const visible = items
-    .filter((item) => !skipped.has(item.id))
+  /*
+   * The rows to render: everything still live and unskipped, plus anything
+   * mid-collapse that has already left the query. Merged rows are re-sorted
+   * newest-first — the live query's own order — so a leaving row collapses
+   * where it sat instead of jumping to one end to do it. The highlight sort
+   * then runs last, unchanged, because a deep-linked row still belongs on top.
+   */
+  const exitingIds = new Set(exiting.map((row) => row.id));
+  const liveIds = new Set(items.map((item) => item.id));
+  const visible = [
+    ...items.filter((item) => !skipped.has(item.id) || exitingIds.has(item.id)),
+    ...exiting.filter((row) => !liveIds.has(row.id)),
+  ]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .sort((left, right) =>
       left.id === highlightedItemId
         ? -1
@@ -174,7 +247,7 @@ export function InboxList({
       <div aria-live="polite">
         {pendingDelete ? (
           <div
-            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm animate-in fade-in-0 duration-150 ease-out"
+            className="flex animate-in items-center justify-between gap-4 rounded-lg border bg-muted/40 p-3 text-sm duration-(--motion-quick) ease-enter fade-in-0"
             role="status"
           >
             <span>Inbox item deleted.</span>
@@ -190,33 +263,57 @@ export function InboxList({
           Your Inbox is calm. Captures will wait here without pressure.
         </p>
       ) : (
-        <ul aria-label="Inbox items" className="flex flex-col gap-2">
-          {visible.map((item) => (
-            <InboxRow
-              item={item}
-              key={item.id}
-              highlighted={item.id === highlightedItemId}
-              locale={locale}
-              timeZone={timeZone}
-              onDelete={() => onDelete(item)}
-              onSkip={() => onSkip(item.id)}
-              onClassifyThought={async (title) => {
-                await classifyInboxItemAsThought(db, item, { title });
-                setMessage("Saved as a Thought.");
-                void sync();
-              }}
-              onClassifyTask={async (title) => {
-                await classifyInboxItemAsTask(db, item, { title });
-                setMessage("Turned into a Task.");
-                void sync();
-              }}
-              onClassifyEvent={async (input) => {
-                await classifyInboxItemAsEvent(db, item, input);
-                setMessage("Added to your calendar.");
-                void sync();
-              }}
-            />
-          ))}
+        /*
+         * Row spacing lives inside each row rather than as a list `gap`: a flex
+         * gap is drawn between children whatever their height, so a row
+         * collapsing to nothing would still leave its gap and the list would
+         * close in two visible steps.
+         */
+        <ul aria-label="Inbox items" className="flex flex-col">
+          {visible.map((item) => {
+            const isExiting = exitingIds.has(item.id);
+            return (
+              <li
+                className={cn(
+                  "grid transition-[grid-template-rows,opacity] duration-(--motion-calm) ease-exit motion-reduce:transition-none",
+                  isExiting ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]",
+                )}
+                key={item.id}
+                // A row mid-collapse has already been dealt with; its controls
+                // must not be clickable or focusable on the way out.
+                inert={isExiting}
+              >
+                <div className="overflow-hidden pb-2">
+                  <InboxRow
+                    item={item}
+                    highlighted={item.id === highlightedItemId}
+                    locale={locale}
+                    timeZone={timeZone}
+                    onDelete={() => onDelete(item)}
+                    onSkip={() => onSkip(item)}
+                    onClassifyThought={async (title) => {
+                      beginExit(item);
+                      await classifyInboxItemAsThought(db, item, { title });
+                      setMessage("Saved as a Thought.");
+                      void sync();
+                    }}
+                    onClassifyTask={async (title) => {
+                      beginExit(item);
+                      await classifyInboxItemAsTask(db, item, { title });
+                      setMessage("Turned into a Task.");
+                      void sync();
+                    }}
+                    onClassifyEvent={async (input) => {
+                      beginExit(item);
+                      await classifyInboxItemAsEvent(db, item, input);
+                      setMessage("Added to your calendar.");
+                      void sync();
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -283,8 +380,13 @@ function InboxRow({
     });
   }
 
+  // The list item itself is the collapsing wrapper the caller renders, so this
+  // is the card inside it rather than the `<li>` — nesting one list item in
+  // another is invalid markup and confuses the list's item count in assistive
+  // tech. The deep-link `id` and its focus target stay here, on the card that
+  // actually carries the highlight.
   return (
-    <li
+    <div
       aria-current={highlighted ? "true" : undefined}
       className={cn(
         "flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground",
@@ -365,6 +467,6 @@ function InboxRow({
           </Button>
         </div>
       )}
-    </li>
+    </div>
   );
 }

@@ -1,6 +1,13 @@
 "use client";
 
-import { type FormEvent, useId, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 
 import { CaptureChips } from "@/components/inbox/capture-chips";
@@ -11,6 +18,7 @@ import { instantFromLocalParts } from "@/domain/calendar/agenda";
 import { type ChipKind, parseCapture } from "@/domain/capture/parser";
 import { INBOX_TITLE_MAX_LENGTH } from "@/domain/inbox/capture";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { cn } from "@/lib/utils";
 import { captureInboxItem } from "@/offline/commands";
 import { createEvent } from "@/offline/event-commands";
 import { useOffline } from "@/offline/provider";
@@ -86,7 +94,24 @@ export function QuickCapture({
       : null;
   const canConfirmEvent = Boolean(detectedTime && eventDate);
 
+  // Adopt anything typed before React took over. The field is live from first
+  // paint and uncontrolled, so text typed ahead of hydration is still sitting
+  // in the node but nothing in React knows about it yet. Reading it once on
+  // mount hands it to state, which lights up the parser chips and the Capture
+  // button as if it had been typed a moment later.
+  useEffect(() => {
+    const typedBeforeHydration = inputRef.current?.value ?? "";
+    if (typedBeforeHydration !== "") {
+      setTitle(typedBeforeHydration);
+    }
+  }, []);
+
+  // The field is uncontrolled, so clearing it means clearing the node as well
+  // as the state that mirrors it for the parser.
   function resetInput() {
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
     setTitle("");
     setRemoved(new Set());
     inputRef.current?.focus();
@@ -94,7 +119,12 @@ export function QuickCapture({
 
   async function onCapture(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmed = title.trim();
+    // Read the field itself rather than state. They agree in every ordinary
+    // case, but a submit that races the hydration adopt-back above would see an
+    // empty `title` and silently drop the capture — the exact failure this
+    // whole surface exists to prevent.
+    const submitted = new FormData(event.currentTarget).get("title");
+    const trimmed = (typeof submitted === "string" ? submitted : title).trim();
     if (trimmed === "") {
       return;
     }
@@ -153,9 +183,21 @@ export function QuickCapture({
         Quick capture
       </label>
       <div className="flex gap-2">
+        {/*
+          The field is deliberately not gated on hydration. This is the first
+          thing on Today and the whole promise of the surface is that a thought
+          can be dumped before it escapes — a capture box that ignores typing
+          until a JS bundle arrives breaks that promise at exactly the moment it
+          matters, and does it silently.
+
+          What did need gating is the submit button below: until React attaches
+          its handler, activating it triggers a native form submission that
+          navigates away and takes the text with it. So the field accepts input
+          from first paint, the effect above adopts whatever landed in it, and
+          only the commit action waits.
+        */}
         <Input
           autoComplete="off"
-          disabled={!hydrated}
           id={inputId}
           maxLength={INBOX_TITLE_MAX_LENGTH}
           name="title"
@@ -168,30 +210,53 @@ export function QuickCapture({
           }}
           placeholder="What's on your mind?"
           ref={inputRef}
-          value={title}
         />
         <Button disabled={!hydrated || title.trim() === ""} type="submit">
           Capture
         </Button>
       </div>
 
-      {visibleChips.length > 0 ? (
-        <div className="flex flex-col gap-2 pt-1">
-          <CaptureChips chips={visibleChips} onRemove={removeChip} />
-          {canConfirmEvent ? (
-            <div>
-              <Button
-                onClick={() => void onConfirmEvent()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Confirm as event
-              </Button>
-            </div>
-          ) : null}
+      {/*
+        The parser proposes chips mid-sentence, so this region appears while the
+        user is still typing. Snapping it into the layout shoved everything
+        below it down between keystrokes — an unannounced jump directly under
+        the cursor, in the one box built for people who lose the thought when
+        something interrupts them.
+
+        Growing the region instead keeps the proposal peripheral: it arrives
+        without taking the eye off the input, and the movement itself is what
+        says "something was noticed" — no alert needed. Same `0fr`/`1fr` reveal
+        as the Today disclosure, so the two read as one behavior.
+      */}
+      {/* `inert` rather than `aria-hidden`: the region holds the chip-removal
+          and confirm buttons, and a collapsed region that is hidden from
+          assistive tech but still reachable by Tab is worse than not hiding it
+          at all. `inert` takes it out of both. */}
+      <div
+        inert={visibleChips.length === 0}
+        className={cn(
+          "grid transition-[grid-template-rows] duration-(--motion-calm) ease-enter motion-reduce:transition-none",
+          visibleChips.length > 0 ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="flex flex-col gap-2 pt-1">
+            <CaptureChips chips={visibleChips} onRemove={removeChip} />
+            {canConfirmEvent ? (
+              <div>
+                <Button
+                  onClick={() => void onConfirmEvent()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Confirm as event
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : null}
+      </div>
 
       <div className="flex min-h-5 items-center gap-2 text-sm text-muted-foreground">
         <p role="status">{status ? status.text : ""}</p>
