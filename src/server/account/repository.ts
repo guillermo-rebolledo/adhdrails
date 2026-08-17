@@ -1,6 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
-import type { AccountProfileInput } from "@/domain/account/onboarding";
+import type {
+  AccountProfileInput,
+  TimeZoneCaptureInput,
+} from "@/domain/account/onboarding";
 import type { Database } from "@/server/db/connection";
 import { user } from "@/server/db/schema";
 
@@ -8,7 +11,8 @@ export interface AccountProfile {
   userId: string;
   email: string;
   name: string;
-  timezone: string;
+  /** `null` until the account's zone is known. */
+  timezone: string | null;
   locale: string;
   onboardingCompletedAt: Date | null;
 }
@@ -51,6 +55,25 @@ export function createAccountRepository(database: Database) {
           updatedAt: new Date(),
         })
         .where(eq(user.id, userId))
+        .returning(profileColumns);
+
+      return row ?? null;
+    },
+
+    /**
+     * Fills in a zone for an account that has none. The `IS NULL` guard is the
+     * whole safety property: capture can never overwrite a zone the account
+     * already has, so it is idempotent, race-free, and safe to attempt on every
+     * page load. A no-op returns `null`.
+     */
+    async captureTimeZone(
+      userId: string,
+      input: TimeZoneCaptureInput,
+    ): Promise<AccountProfile | null> {
+      const [row] = await database
+        .update(user)
+        .set({ timezone: input.timezone, updatedAt: new Date() })
+        .where(and(eq(user.id, userId), isNull(user.timezone)))
         .returning(profileColumns);
 
       return row ?? null;

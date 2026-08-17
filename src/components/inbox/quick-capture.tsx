@@ -13,7 +13,6 @@ import Link from "next/link";
 import { CaptureChips } from "@/components/inbox/capture-chips";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from "@/domain/account/onboarding";
 import { instantFromLocalParts } from "@/domain/calendar/agenda";
 import { type ChipKind, parseCapture } from "@/domain/capture/parser";
 import { INBOX_TITLE_MAX_LENGTH } from "@/domain/inbox/capture";
@@ -22,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { captureInboxItem } from "@/offline/commands";
 import { createEvent } from "@/offline/event-commands";
 import { useOffline } from "@/offline/provider";
+import { useClock } from "@/components/account/time-zone-provider";
 
 /** Duration a confirmed timed capture defaults to when none was detected. */
 const DEFAULT_DURATION_MINUTES = 30;
@@ -43,13 +43,15 @@ interface CaptureStatus {
  * the established offline mutation path. A capture is acknowledged locally well
  * within the 100ms budget; delivery happens in the background.
  */
-export function QuickCapture({
-  timeZone = DEFAULT_TIMEZONE,
-  locale = DEFAULT_LOCALE,
-}: {
-  timeZone?: string;
-  locale?: string;
-}) {
+export function QuickCapture(
+  overrides: {
+    timeZone?: string;
+    locale?: string;
+  } = {},
+) {
+  // A capture like "meet at 3pm" is resolved to an instant using this zone, so
+  // it has to be the user's own — an app-wide clock is the only way that holds.
+  const { timeZone, locale } = useClock(overrides);
   const { db, sync } = useOffline();
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);

@@ -105,10 +105,11 @@ export function createAuth(
     },
     user: {
       additionalFields: {
+        // No default: a new account starts with an unknown zone rather than a
+        // plausible-looking wrong one. See the `user.timezone` column comment.
         timezone: {
           type: "string",
           required: false,
-          defaultValue: "UTC",
           input: false,
         },
         locale: {

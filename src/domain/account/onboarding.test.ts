@@ -8,6 +8,8 @@ import {
   deriveInitialTimeZone,
   hasCompletedOnboarding,
   resolveAuthenticatedLanding,
+  resolveEffectiveTimeZone,
+  timeZoneNeedsCapture,
   resolveProtectedRouteRedirect,
 } from "./onboarding";
 
@@ -21,6 +23,54 @@ describe("deriveInitialTimeZone", () => {
     expect(deriveInitialTimeZone("")).toBe(DEFAULT_TIMEZONE);
     expect(deriveInitialTimeZone(null)).toBe(DEFAULT_TIMEZONE);
     expect(deriveInitialTimeZone(undefined)).toBe(DEFAULT_TIMEZONE);
+  });
+});
+
+describe("timeZoneNeedsCapture", () => {
+  it("is true only when the account has no usable zone", () => {
+    expect(timeZoneNeedsCapture(null)).toBe(true);
+    expect(timeZoneNeedsCapture(undefined)).toBe(true);
+    expect(timeZoneNeedsCapture("")).toBe(true);
+    expect(timeZoneNeedsCapture("Mars/Phobos")).toBe(true);
+  });
+
+  it("is false for a stored zone, including a deliberate UTC", () => {
+    expect(timeZoneNeedsCapture("America/New_York")).toBe(false);
+    // The whole point of the nullable column: an explicit UTC is a real answer,
+    // no longer indistinguishable from never having been asked.
+    expect(timeZoneNeedsCapture(DEFAULT_TIMEZONE)).toBe(false);
+  });
+});
+
+describe("resolveEffectiveTimeZone", () => {
+  it("uses the account's zone whenever it is known", () => {
+    expect(
+      resolveEffectiveTimeZone("America/New_York", "America/Mexico_City"),
+    ).toBe("America/New_York");
+  });
+
+  it("respects a deliberate UTC over the browser", () => {
+    expect(resolveEffectiveTimeZone("UTC", "America/Mexico_City")).toBe("UTC");
+  });
+
+  it("falls back to the browser when the account's zone is unknown", () => {
+    expect(resolveEffectiveTimeZone(null, "America/Mexico_City")).toBe(
+      "America/Mexico_City",
+    );
+  });
+
+  it("falls back to the default with no browser to ask — the server case", () => {
+    expect(resolveEffectiveTimeZone(null)).toBe(DEFAULT_TIMEZONE);
+    expect(resolveEffectiveTimeZone(null, null)).toBe(DEFAULT_TIMEZONE);
+  });
+
+  it("ignores an unusable zone on either side", () => {
+    expect(resolveEffectiveTimeZone("Mars/Phobos", "America/Mexico_City")).toBe(
+      "America/Mexico_City",
+    );
+    expect(resolveEffectiveTimeZone(null, "Mars/Phobos")).toBe(
+      DEFAULT_TIMEZONE,
+    );
   });
 });
 

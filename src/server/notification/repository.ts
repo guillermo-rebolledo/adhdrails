@@ -5,6 +5,7 @@ import {
   reminderPreferencesSchema,
   type ReminderPreferences,
 } from "@/domain/notification/reminder";
+import { resolveEffectiveTimeZone } from "@/domain/account/onboarding";
 import type { Database } from "@/server/db/connection";
 import {
   pushSubscription,
@@ -54,7 +55,8 @@ function preferencesFrom(row: {
 
 function candidateFrom(row: {
   userId: string;
-  timezone: string;
+  /** `null` when the account's zone is still unknown. */
+  timezone: string | null;
   taskId: string;
   scheduledDate: string | null;
   scheduledTime: string | null;
@@ -71,7 +73,10 @@ function candidateFrom(row: {
   if (row.scheduledDate === null) return null;
   return {
     userId: row.userId,
-    timezone: row.timezone,
+    // No browser exists here, so an account whose zone was never captured falls
+    // back to the default. The client records the browser's zone on first load
+    // precisely so this branch stops being reached.
+    timezone: resolveEffectiveTimeZone(row.timezone),
     taskId: row.taskId,
     scheduledDate: row.scheduledDate,
     scheduledTime: row.scheduledTime,

@@ -9,6 +9,7 @@ import {
   type ReminderPreferences,
 } from "@/domain/notification/reminder";
 import { useOffline } from "@/offline/provider";
+import { useClock } from "@/components/account/time-zone-provider";
 
 interface CueTask {
   id: string;
@@ -89,13 +90,13 @@ export function InAppReminderList({
  */
 export function InAppReminderCues({
   preferences,
-  timeZone,
-  locale,
+  ...overrides
 }: {
   preferences: ReminderPreferences;
-  timeZone: string;
-  locale: string;
+  timeZone?: string;
+  locale?: string;
 }) {
+  const { timeZone, locale } = useClock(overrides);
   const { db } = useOffline();
   const [nowIso, setNowIso] = useState(() => new Date().toISOString());
   useEffect(() => {
