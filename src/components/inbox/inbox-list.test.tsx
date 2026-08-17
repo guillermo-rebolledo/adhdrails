@@ -77,7 +77,11 @@ describe("InboxList", () => {
     expect(result).not.toBeNull();
     await waitFor(() => expect(result).toHaveFocus());
     expect(result).toHaveAttribute("aria-current", "true");
-    expect(screen.getAllByRole("listitem")[0]).toBe(result);
+    // The list item is the wrapper that collapses a row out of the list; the
+    // highlighted card, which carries the deep-link id and the focus, sits
+    // inside it. What matters is that the deep-linked row sorts to the top, so
+    // assert containment rather than identity.
+    expect(screen.getAllByRole("listitem")[0]).toContainElement(result);
   });
 
   it("classifies an item as a Thought", async () => {

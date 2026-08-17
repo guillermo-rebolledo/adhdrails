@@ -133,7 +133,7 @@ export function AvailableTasks() {
           <ChevronRightIcon
             aria-hidden="true"
             className={cn(
-              "size-4 text-muted-foreground transition-transform",
+              "size-4 text-muted-foreground transition-transform duration-(--motion-calm) ease-enter motion-reduce:transition-none",
               panelOpen && "rotate-90",
             )}
           />
@@ -149,11 +149,33 @@ export function AvailableTasks() {
           New task
         </Link>
       </div>
-      {panelOpen ? (
-        <div id="available-tasks-panel">
+      {/*
+        The chevron rotates to point down, promising the list will open
+        downward — so the list has to actually do that. Swapping the panel in
+        and out of the tree made it appear fully formed instead, which reads as
+        a different, unrelated thing arriving.
+
+        The reveal is a `grid-template-rows` transition from `0fr` to `1fr`: it
+        animates to the content's natural height without anyone measuring it,
+        and the inner `overflow-hidden` clips the list as it grows. The panel
+        stays mounted so the transition has two states to move between, and is
+        marked `inert` while closed so hidden rows stay out of the tab order and
+        the accessibility tree.
+      */}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-(--motion-calm) ease-enter motion-reduce:transition-none",
+          panelOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div
+          className="overflow-hidden"
+          id="available-tasks-panel"
+          inert={!panelOpen}
+        >
           <TaskList />
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }
