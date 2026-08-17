@@ -2,7 +2,7 @@
 
 import "fake-indexeddb/auto";
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -142,7 +142,7 @@ describe("FocusSession", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     // The distraction lands in the Inbox as an unseen item.
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       const items = await db.inboxItems.toArray();
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ title: "Reply to Sam", seen: false });
@@ -151,7 +151,7 @@ describe("FocusSession", () => {
     expect(await screen.findByText("Saved to Inbox.")).toBeInTheDocument();
     expect(input).toHaveValue("");
     // The session's captured-distraction count advanced.
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect((await db.focusSessions.get(session.id))?.distractionCount).toBe(
         1,
       );
@@ -212,7 +212,7 @@ describe("FocusSession", () => {
     await user.click(
       within(view).getByRole("button", { name: "Exit focus view" }),
     );
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
   });
@@ -242,7 +242,7 @@ describe("FocusSession", () => {
 
     // Escape closes the overlay and returns focus to where it came from.
     await user.keyboard("{Escape}");
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
     expect(trigger).toHaveFocus();

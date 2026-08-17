@@ -1,3 +1,4 @@
+-- migration-phase: expand
 ALTER TABLE "user" ALTER COLUMN "timezone" DROP DEFAULT;--> statement-breakpoint
 ALTER TABLE "user" ALTER COLUMN "timezone" DROP NOT NULL;--> statement-breakpoint
 -- Backfill: every existing row reading 'UTC' got that value from the column
