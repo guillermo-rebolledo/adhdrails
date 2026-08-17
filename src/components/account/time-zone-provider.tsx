@@ -68,27 +68,58 @@ export function TimeZoneProvider({
   );
 
   const timeZone = resolveEffectiveTimeZone(accountTimeZone, detected);
-  const attempted = useRef(false);
+  const settled = useRef(false);
+  const inFlight = useRef(false);
 
   useEffect(() => {
-    // Only ever attempted for an account with no zone, and only once per mount:
-    // the server-side guard makes a repeat harmless, but there is no reason to
-    // ask twice. A failure is deliberately silent — the interface is already
-    // showing the right times from `detected`, so a failed capture is a
-    // background concern, not something to interrupt the user with.
-    if (attempted.current || !timeZoneNeedsCapture(accountTimeZone)) {
+    if (settled.current || !timeZoneNeedsCapture(accountTimeZone)) {
       return;
     }
     if (timeZoneNeedsCapture(detected)) {
       return;
     }
 
-    attempted.current = true;
-    void fetch("/api/v1/account/timezone", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ timezone: detected }),
-    }).catch(() => {});
+    let cancelled = false;
+
+    async function capture() {
+      if (inFlight.current || settled.current) {
+        return;
+      }
+      inFlight.current = true;
+
+      try {
+        const response = await fetch("/api/v1/account/timezone", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ timezone: detected }),
+        });
+
+        // Anything the server has an opinion about is final: it either recorded
+        // the zone, already had one, or rejected this one. Only a lost
+        // connection or a server fault leaves the question genuinely open.
+        if (!cancelled && response.status < 500) {
+          settled.current = true;
+        }
+      } catch {
+        // Left unsettled on purpose, so the `online` listener below retries.
+      } finally {
+        inFlight.current = false;
+      }
+    }
+
+    // Rails is offline-first, so the very first load of a new account may well
+    // have no connection — the case this capture matters most in, since an
+    // account whose zone is never recorded keeps scheduling reminders on the
+    // UTC fallback. Retrying when the connection returns follows the outbox:
+    // attempt now, attempt again on `online`, and never more than one at a
+    // time. The server's IS NULL guard makes a redundant attempt harmless.
+    void capture();
+    window.addEventListener("online", capture);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", capture);
+    };
   }, [accountTimeZone, detected]);
 
   return (

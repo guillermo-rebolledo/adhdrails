@@ -31,7 +31,7 @@ vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
   timeZone: BROWSER_ZONE,
 } as Intl.ResolvedDateTimeFormatOptions);
 
-const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 vi.stubGlobal("fetch", fetchMock);
 
 afterEach(() => {
@@ -75,6 +75,57 @@ describe("TimeZoneProvider", () => {
     // The zone shown comes from the browser either way, so a failed capture is
     // invisible to the user — it only means the server learns it later.
     expect(await screen.findByTestId("probe")).toHaveTextContent(BROWSER_ZONE);
+  });
+
+  it("retries the capture when the connection returns", async () => {
+    // The first load of a new account may well be offline; giving up there
+    // would leave reminders scheduling on the UTC fallback indefinitely.
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    renderWith(null);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new Event("online"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      timezone: BROWSER_ZONE,
+    });
+  });
+
+  it("retries after a server fault but not after the server answers", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    renderWith(null);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The second attempt succeeded, so the question is settled and further
+    // connection changes must not keep asking.
+    window.dispatchEvent(new Event("online"));
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("stops asking when the server rejects the zone", async () => {
+    // A 4xx is a real answer: retrying it would only repeat the rejection.
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 422 });
+    renderWith(null);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new Event("online"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("stops listening once unmounted", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    const { unmount } = renderWith(null);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    unmount();
+    window.dispatchEvent(new Event("online"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   });
 });
 
